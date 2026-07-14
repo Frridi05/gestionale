@@ -504,13 +504,123 @@ function openInterventoForm(id){
   showModal(`
     <h2>${i?'Modifica intervento':'Nuovo intervento'}</h2>
     <div class="modal-sub">Manutenzione, riparazione o installazione</div>
-    <div class="form-grid"><div class="form-row"><label>Cliente *</label><select class="select" id="f-cliente">${clienteOptions(i?.clienteId)}</select></div>
-      <div class="form-row"><label>Data *</label><input class="input" type="date" id="f-data" value="${i?.data||todayISO()}"></div></div>
-    <div class="form-grid"><div class="form-row"><label>Tipo</label><select class="select" id="f-tipo">${['Manutenzione','Riparazione','Installazione','Ispezione'].map(t=>`<option ${i?.tipo===t?'selected':''}>${t}</option>`).join('')}</select></div>
-      <div class="form-row"><label>Stato</label><select class="select" id="f-stato">${[['da_programmare','Da programmare'],['programmato','Programmato'],['in_corso','In corso'],['completato','Completato']].map(([v,l])=>`<option value="${v}" ${i?.stato===v?'selected':''}>${l}</option>`).join('')}</select></div></div>
-    <div class="form-row"><label>Descrizione / macchinari</label><textarea class="input" id="f-descrizione" rows="2">${esc(i?.descrizione)||''}</textarea></div>
+    <div class="form-grid">
+      <div class="form-row">
+        <label>Cliente *</label>
+        <select class="select" id="f-cliente">${clienteOptions(i?.clienteId)}</select>
+      </div>
+      <div class="form-row">
+        <label>Data *</label>
+        <input class="input" type="date" id="f-data" value="${i?.data||todayISO()}">
+      </div>
+    </div>
+    <div class="form-grid">
+      <div class="form-row">
+        <label>Tipo</label>
+        <select class="select" id="f-tipo">
+          ${['Manutenzione','Riparazione','Installazione','Ispezione'].map(t=>`<option ${i?.tipo===t?'selected':''}>${t}</option>`).join('')}
+        </select>
+      </div>
+      <div class="form-row">
+        <label>Stato</label>
+        <select class="select" id="f-stato">
+          ${[['da_programmare','Da programmare'],['programmato','Programmato'],['in_corso','In corso'],['completato','Completato']].map(([v,l])=>`<option value="${v}" ${i?.stato===v?'selected':''}>${l}</option>`).join('')}
+        </select>
+      </div>
+    </div>
+    <div class="form-grid">
+      <div class="form-row">
+        <label>Costo d'intervento (€)</label>
+        <input class="input" type="number" step="0.01" id="f-costo" value="${i?.costo||''}">
+      </div>
+    </div>
+    <div class="form-row">
+      <label>Descrizione / macchinari</label>
+      <textarea class="input" id="f-descrizione" rows="2">${esc(i?.descrizione)||''}</textarea>
+    </div>
+    <div class="form-row">
+      <label>Note interne</label>
+      <textarea class="input" id="f-note" rows="2">${esc(i?.note)||''}</textarea>
+    </div>
+    <div class="modal-actions">
+      <button class="btn secondary" onclick="closeModal()">Annulla</button>
+      <button class="btn" onclick="saveIntervento('${id||''}')">${icon('check')} Salva</button>
+    </div>
   `);
 }
+
+async function saveIntervento(id){
+  const clienteId = document.getElementById('f-cliente').value;
+  const dataVal = document.getElementById('f-data').value;
+  if(!clienteId || !dataVal){ toast('Cliente e data sono obbligatori','danger'); return; }
+  
+  const obj = {
+    clienteId,
+    data: dataVal,
+    tipo: document.getElementById('f-tipo').value,
+    stato: document.getElementById('f-stato').value,
+    costo: Number(document.getElementById('f-costo').value)||0,
+    descrizione: document.getElementById('f-descrizione').value.trim(),
+    note: document.getElementById('f-note').value.trim()
+  };
+  
+  const payload = toDb('interventi', obj);
+  if(id){
+    const {data,error} = await supabaseClient.from('interventi').update(payload).eq('id',id).select().single();
+    if(error){ toast('Errore salvataggio','danger'); return; }
+    Object.assign(DB.interventi.find(x=>x.id===id), fromDb('interventi',data));
+  } else {
+    const {data,error} = await supabaseClient.from('interventi').insert(payload).select().single();
+    if(error){ toast('Errore salvataggio','danger'); return; }
+    DB.interventi.unshift(fromDb('interventi',data));
+  }
+  closeModal(); render(); toast('Intervento salvato');
+}
+
+async function deleteIntervento(id){
+  if(!confirmDelete('Eliminare questo intervento?')) return;
+  const {error} = await supabaseClient.from('interventi').delete().eq('id',id);
+  if(error){ toast('Errore eliminazione','danger'); return; }
+  DB.interventi = DB.interventi.filter(x=>x.id!==id);
+  render(); toast('Intervento eliminato');
+}
+
+/* ============ UTILS INTERFACCIAMENTO MODALE ============ */
+function showModal(htmlContent){
+  document.getElementById('modal').innerHTML = htmlContent;
+  document.getElementById('overlay').classList.add('show');
+}
+function closeModal(){
+  document.getElementById('overlay').classList.remove('show');
+  document.getElementById('modal').innerHTML = '';
+}
+
+// Inizializzazione automatica al caricamento dello script
+(async function init(){
+  // Se Supabase è configurato correttamente, prova a verificare lo stato di autenticazione
+  if(CONFIGURED && supabaseClient){
+    try {
+      const { data: { session } } = await supabaseClient.auth.getSession();
+      if(session){
+        await enterApp(session);
+      } else {
+        document.getElementById('loading').style.display='none';
+        document.getElementById('login-screen').style.display='flex';
+      }
+    } catch(e) {
+      console.error("Errore inizializzazione sessione:", e);
+      document.getElementById('loading').style.display='none';
+      document.getElementById('login-screen').style.display='flex';
+    }
+  } else {
+    // Se non configurato, mostra la schermata iniziale con un avviso
+    document.getElementById('loading').innerHTML = `
+      <div class="config-warning" style="max-width:400px; text-align:center;">
+        <strong>Configurazione mancante!</strong><br>
+        Compila l'URL e la Anon Key di Supabase alle righe 224 e 225 all'interno del file HTML per iniziare.
+      </div>`;
+  }
+})();
 </script>
 </body>
 </html>
