@@ -1,0 +1,844 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>GymCare — Gestionale</title>
+<meta name="theme-color" content="#0B0E14">
+<meta name="description" content="Gestionale GymCare: clienti, interventi, preventivi, fatture, spese e magazzino.">
+<link rel="manifest" href="manifest.json">
+<link rel="icon" href="icon-192.png">
+<link rel="apple-touch-icon" href="icon-192.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="GymCare">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
+<style>
+:root{
+  --bg:#0B0E14;
+  --panel:#12161F;
+  --panel-2:#181D28;
+  --border:#232A38;
+  --text:#E7EAF0;
+  --text-dim:#8A93A6;
+  --text-faint:#5B6577;
+  --accent:#0066FF;
+  --accent-soft:rgba(0,102,255,0.14);
+  --ok:#22C55E;
+  --ok-soft:rgba(34,197,94,0.14);
+  --warn:#F5A623;
+  --warn-soft:rgba(245,166,35,0.14);
+  --danger:#EF4444;
+  --danger-soft:rgba(239,68,68,0.14);
+  --radius:10px;
+  --font:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+  --mono:"SF Mono",SFMono-Regular,Consolas,"Liberation Mono",Menlo,monospace;
+}
+*{box-sizing:border-box;}
+html,body{margin:0;padding:0;}
+body{background:var(--bg);color:var(--text);font-family:var(--font);font-size:14px;-webkit-font-smoothing:antialiased;min-height:100vh;}
+#app{display:flex;min-height:100vh;}
+
+/* Login */
+#login-screen{min-height:100vh;display:flex;align-items:center;justify-content:center;padding:20px;}
+.login-box{width:100%;max-width:360px;background:var(--panel);border:1px solid var(--border);border-radius:14px;padding:30px 26px;}
+.login-brand{display:flex;flex-direction:column;align-items:center;gap:12px;margin-bottom:22px;}
+.login-brand .brand-mark{width:46px;height:46px;border-radius:12px;background:linear-gradient(135deg,var(--accent),#003C99);display:flex;align-items:center;justify-content:center;font-weight:800;font-size:16px;color:#fff;}
+.login-brand .name{font-weight:700;font-size:17px;}
+.login-brand .sub{font-size:12px;color:var(--text-faint);}
+.login-error{background:var(--danger-soft);color:#FCA5A5;border-radius:8px;padding:9px 12px;font-size:12.5px;margin-bottom:14px;display:none;}
+.login-error.show{display:block;}
+
+/* Sidebar */
+.sidebar{width:230px;flex-shrink:0;background:var(--panel);border-right:1px solid var(--border);display:flex;flex-direction:column;padding:20px 14px;position:sticky;top:0;height:100vh;}
+.brand{display:flex;align-items:center;gap:10px;padding:6px 8px 22px 8px;}
+.brand-mark{width:34px;height:34px;border-radius:9px;background:linear-gradient(135deg,var(--accent),#003C99);display:flex;align-items:center;justify-content:center;font-weight:800;font-size:13px;letter-spacing:-0.5px;color:#fff;flex-shrink:0;}
+.brand-text .name{font-weight:700;font-size:15px;letter-spacing:-0.2px;}
+.brand-text .sub{font-size:11px;color:var(--text-faint);}
+.nav{display:flex;flex-direction:column;gap:2px;margin-top:6px;}
+.nav-item{display:flex;align-items:center;gap:11px;padding:9px 10px;border-radius:8px;color:var(--text-dim);cursor:pointer;font-size:13.5px;font-weight:500;border:1px solid transparent;transition:background .12s,color .12s;user-select:none;}
+.nav-item svg{width:17px;height:17px;flex-shrink:0;opacity:.85;}
+.nav-item:hover{background:var(--panel-2);color:var(--text);}
+.nav-item.active{background:var(--accent-soft);color:#fff;border-color:rgba(0,102,255,0.35);}
+.nav-item.active svg{opacity:1;}
+.sidebar-footer{margin-top:auto;padding-top:14px;border-top:1px solid var(--border);}
+.user-chip{display:flex;align-items:center;justify-content:space-between;gap:8px;font-size:11.5px;color:var(--text-dim);padding:0 4px;}
+.user-chip .email{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:130px;}
+.logout-btn{background:transparent;border:none;color:var(--text-faint);cursor:pointer;font-size:11px;text-decoration:underline;padding:0;}
+.sync-note{font-size:10px;color:var(--text-faint);margin-top:8px;padding:0 4px;}
+
+/* Main */
+.main{flex:1;min-width:0;padding:26px 34px 60px 34px;}
+.page-header{display:flex;align-items:flex-end;justify-content:space-between;margin-bottom:22px;flex-wrap:wrap;gap:12px;}
+.page-title{font-size:21px;font-weight:700;letter-spacing:-0.3px;}
+.page-sub{color:var(--text-dim);font-size:13px;margin-top:3px;}
+.btn{background:var(--accent);color:#fff;border:none;border-radius:8px;padding:9px 15px;font-size:13.5px;font-weight:600;cursor:pointer;display:inline-flex;align-items:center;gap:7px;transition:filter .12s, transform .05s;font-family:var(--font);}
+.btn:hover{filter:brightness(1.12);}
+.btn:active{transform:scale(.97);}
+.btn.secondary{background:var(--panel-2);color:var(--text);border:1px solid var(--border);}
+.btn.ghost{background:transparent;color:var(--text-dim);border:1px solid var(--border);padding:7px 11px;font-size:12.5px;}
+.btn.small{padding:6px 10px;font-size:12px;}
+.btn.full{width:100%;justify-content:center;}
+.btn svg{width:15px;height:15px;}
+.btn:disabled{opacity:.6;cursor:default;}
+
+.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:14px;margin-bottom:24px;}
+.card{background:var(--panel);border:1px solid var(--border);border-radius:var(--radius);padding:17px 18px;}
+.card .k{font-size:11.5px;color:var(--text-dim);text-transform:uppercase;letter-spacing:.5px;font-weight:600;}
+.card .v{font-size:24px;font-weight:700;margin-top:8px;letter-spacing:-0.5px;}
+.card .delta{font-size:11.5px;margin-top:6px;color:var(--text-faint);}
+
+.panel{background:var(--panel);border:1px solid var(--border);border-radius:var(--radius);overflow:hidden;margin-bottom:20px;}
+.panel-head{padding:16px 18px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;}
+.panel-head h3{margin:0;font-size:14.5px;font-weight:700;}
+.panel-body{padding:6px 0;}
+.panel-body.pad{padding:16px 18px;}
+
+table{width:100%;border-collapse:collapse;font-size:13px;}
+th{text-align:left;color:var(--text-faint);font-weight:600;font-size:11px;text-transform:uppercase;letter-spacing:.4px;padding:10px 18px;border-bottom:1px solid var(--border);}
+td{padding:12px 18px;border-bottom:1px solid var(--border);vertical-align:middle;}
+tr:last-child td{border-bottom:none;}
+tbody tr:hover{background:var(--panel-2);}
+.row-actions{display:flex;gap:6px;justify-content:flex-end;}
+.icon-btn{background:transparent;border:1px solid var(--border);color:var(--text-dim);border-radius:6px;width:28px;height:28px;display:inline-flex;align-items:center;justify-content:center;cursor:pointer;}
+.icon-btn:hover{color:var(--text);border-color:var(--text-faint);}
+.icon-btn svg{width:14px;height:14px;}
+.empty{padding:44px 18px;text-align:center;color:var(--text-faint);font-size:13px;}
+.empty .big{font-size:30px;margin-bottom:8px;opacity:.5;}
+
+.badge{display:inline-flex;align-items:center;padding:3px 9px;border-radius:20px;font-size:11px;font-weight:600;white-space:nowrap;}
+.badge.ok{background:var(--ok-soft);color:#4ADE80;}
+.badge.warn{background:var(--warn-soft);color:#FBBF24;}
+.badge.danger{background:var(--danger-soft);color:#FCA5A5;}
+.badge.neutral{background:var(--panel-2);color:var(--text-dim);border:1px solid var(--border);}
+.badge.info{background:var(--accent-soft);color:#7EA8FF;}
+
+.filters{display:flex;gap:8px;flex-wrap:wrap;padding:14px 18px;border-bottom:1px solid var(--border);}
+.input,.select,textarea{background:var(--panel-2);border:1px solid var(--border);color:var(--text);border-radius:7px;padding:8px 11px;font-size:13px;font-family:var(--font);outline:none;}
+.input:focus,.select:focus,textarea:focus{border-color:var(--accent);}
+.form-row .input,.form-row .select,.form-row textarea{width:100%;}
+
+.overlay{position:fixed;inset:0;background:rgba(4,6,10,0.6);display:none;align-items:flex-start;justify-content:center;z-index:100;padding:40px 16px;overflow-y:auto;backdrop-filter:blur(2px);}
+.overlay.show{display:flex;}
+.modal{background:var(--panel);border:1px solid var(--border);border-radius:14px;width:100%;max-width:520px;padding:22px 22px 20px 22px;}
+.modal h2{margin:0 0 4px 0;font-size:17px;}
+.modal .modal-sub{color:var(--text-dim);font-size:12.5px;margin-bottom:18px;}
+.form-row{margin-bottom:13px;}
+.form-row label{display:block;font-size:12px;color:var(--text-dim);margin-bottom:6px;font-weight:600;}
+.form-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px;}
+.modal-actions{display:flex;justify-content:flex-end;gap:8px;margin-top:18px;padding-top:16px;border-top:1px solid var(--border);}
+
+.voci-table{width:100%;border-collapse:collapse;margin-bottom:8px;}
+.voci-table th{font-size:10.5px;padding:4px 6px;}
+.voci-table td{padding:4px 6px;border:none;}
+.voci-table input{width:100%;}
+.voci-total{display:flex;justify-content:flex-end;gap:16px;padding:10px 4px 0 4px;font-size:14px;font-weight:700;}
+
+#toast{position:fixed;bottom:22px;right:22px;background:var(--panel-2);border:1px solid var(--border);color:var(--text);padding:12px 16px;border-radius:9px;font-size:13px;box-shadow:0 8px 24px rgba(0,0,0,0.4);z-index:200;display:none;align-items:center;gap:9px;}
+#toast.show{display:flex;}
+#toast .dot{width:7px;height:7px;border-radius:50%;background:var(--ok);}
+
+#loading{position:fixed;inset:0;background:var(--bg);display:flex;align-items:center;justify-content:center;z-index:300;color:var(--text-dim);font-size:13px;}
+
+.chart{display:flex;align-items:flex-end;gap:7px;height:120px;padding:6px 4px 0 4px;}
+.chart .bar-wrap{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;height:100%;}
+.chart .bar{width:100%;background:linear-gradient(180deg,var(--accent),#003C99);border-radius:4px 4px 0 0;min-height:2px;}
+.chart .lbl{font-size:9.5px;color:var(--text-faint);margin-top:6px;}
+
+.mono{font-family:var(--mono);}
+.text-dim{color:var(--text-dim);}
+.text-right{text-align:right;}
+.config-warning{background:var(--warn-soft);color:#FBBF24;border-radius:9px;padding:12px 14px;font-size:12.5px;margin-bottom:16px;line-height:1.5;}
+
+@media(max-width:860px){
+  .sidebar{position:fixed;left:0;top:0;bottom:0;transform:translateX(-100%);transition:transform .2s;z-index:150;}
+  .sidebar.open{transform:translateX(0);}
+  .main{padding:18px;width:100%;}
+  .form-grid{grid-template-columns:1fr;}
+  .mobile-topbar{display:flex;}
+}
+.mobile-topbar{display:none;align-items:center;gap:12px;margin-bottom:16px;}
+</style>
+</head>
+<body>
+
+<div id="loading">Caricamento gestionale…</div>
+
+<div id="login-screen" style="display:none;">
+  <div class="login-box">
+    <div class="login-brand">
+      <div class="brand-mark">BFA</div>
+      <div class="name">GymCare</div>
+      <div class="sub">Accesso riservato al team</div>
+    </div>
+    <div class="login-error" id="login-error"></div>
+    <div class="form-row"><label>Email</label><input class="input" type="email" id="login-email" autocomplete="username"></div>
+    <div class="form-row"><label>Password</label><input class="input" type="password" id="login-password" autocomplete="current-password"></div>
+    <button class="btn full" id="login-btn" onclick="doLogin()">Accedi</button>
+    <div style="text-align:center;margin-top:16px;font-size:11.5px;color:var(--text-faint);">
+      Le credenziali vengono create dal titolare.<br>Nessuna registrazione autonoma è consentita.
+    </div>
+  </div>
+</div>
+
+<div id="app" style="display:none;">
+  <aside class="sidebar" id="sidebar">
+    <div class="brand">
+      <div class="brand-mark">BFA</div>
+      <div class="brand-text">
+        <div class="name">GymCare</div>
+        <div class="sub">Gestionale attività</div>
+      </div>
+    </div>
+    <nav class="nav" id="nav"></nav>
+    <div class="sidebar-footer">
+      <div class="user-chip"><span class="email" id="user-email"></span><button class="logout-btn" onclick="doLogout()">Esci</button></div>
+      <div class="sync-note">Dati sincronizzati in tempo reale col team</div>
+    </div>
+  </aside>
+
+  <main class="main">
+    <div class="mobile-topbar">
+      <button class="icon-btn" onclick="document.getElementById('sidebar').classList.toggle('open')" style="width:34px;height:34px;">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18M3 12h18M3 18h18"/></svg>
+      </button>
+      <strong>GymCare</strong>
+    </div>
+    <div id="content"></div>
+  </main>
+</div>
+
+<div class="overlay" id="overlay"><div class="modal" id="modal"></div></div>
+<div id="toast"><span class="dot"></span><span id="toast-msg"></span></div>
+
+<script>
+/* ============================================================
+   CONFIGURAZIONE SUPABASE — DA COMPILARE
+   1. Crea un progetto gratuito su https://supabase.com
+   2. Vai su Project Settings > API
+   3. Copia "Project URL" e "anon public key" qui sotto
+   4. Esegui lo script SQL fornito (schema.sql) nell'SQL Editor di Supabase
+   5. In Authentication > Providers, disattiva "Allow new users to sign up"
+   6. Crea gli account del team in Authentication > Users > Add user
+   ============================================================ */
+const SUPABASE_URL = 'sb_publishable_EdARqXTuVa-5e9hfSJOQtg_KUyVtxEY';
+const SUPABASE_ANON_KEY = 'sb_secret_J-wpLoc9NjqMyrSXcQOo7A_Nfwv85VZ';
+
+const CONFIGURED = !SUPABASE_URL.startsWith('INSERISCI') && !SUPABASE_ANON_KEY.startsWith('INSERISCI');
+let supabase = null;
+if(CONFIGURED){
+  supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+}
+
+/* ============ ICONS ============ */
+const ICONS = {
+  dashboard:'<path d="M3 13h8V3H3v10Zm10 8h8V11h-8v10ZM3 21h8v-6H3v6ZM13 3v6h8V3h-8Z"/>',
+  clienti:'<path d="M17 20a5 5 0 0 0-10 0"/><circle cx="12" cy="9" r="4"/>',
+  interventi:'<path d="M14.7 6.3a4 4 0 0 1-5.5 5.5L4 17v3h3l5.2-5.2a4 4 0 0 1 5.5-5.5L21 6l-3-3-3.3 3.3Z"/>',
+  preventivi:'<path d="M9 12h6M9 16h6M9 8h6M6 3h9l5 5v13a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1Z"/>',
+  fatture:'<path d="M6 3h9l5 5v12a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1Z"/><path d="M9 9h6M9 13h6M9 17h3"/>',
+  spese:'<circle cx="12" cy="12" r="9"/><path d="M12 7v10M9 9.5c0-1.4 1.3-2.5 3-2.5s3 1.1 3 2.5-1.3 2-3 2.5-3 1.1-3 2.5 1.3 2.5 3 2.5 3-1.1 3-2.5"/>',
+  magazzino:'<path d="M21 8 12 3 3 8l9 5 9-5Z"/><path d="M3 8v8l9 5 9-5V8M12 13v8"/>',
+  plus:'<path d="M12 5v14M5 12h14"/>',
+  edit:'<path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/>',
+  trash:'<path d="M3 6h18"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2m3 0-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/>',
+  x:'<path d="M18 6 6 18M6 6l12 12"/>',
+  check:'<path d="M20 6 9 17l-5-5"/>',
+  convert:'<path d="M17 1l4 4-4 4"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/><path d="M7 23l-4-4 4-4"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/>',
+};
+function icon(name){ return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${ICONS[name]||''}</svg>`; }
+
+/* ============ STATE ============ */
+let DB = { clienti:[], interventi:[], preventivi:[], fatture:[], spese:[], magazzino:[] };
+let currentTab = 'dashboard';
+const KEYS = ['clienti','interventi','preventivi','fatture','spese','magazzino'];
+let realtimeChannels = [];
+
+/* Field maps: [colonna_db, campoJs] */
+const FIELD_MAPS = {
+  clienti: [['nome','nome'],['citta','citta'],['telefono','telefono'],['indirizzo','indirizzo'],['referente','referente'],['email','email'],['note','note']],
+  interventi: [['cliente_id','clienteId'],['data','data'],['tipo','tipo'],['stato','stato'],['descrizione','descrizione'],['costo','costo'],['note','note']],
+  preventivi: [['numero','numero'],['cliente_id','clienteId'],['data','data'],['voci','voci'],['stato','stato'],['scadenza','scadenza'],['note','note']],
+  fatture: [['numero','numero'],['cliente_id','clienteId'],['data','data'],['voci','voci'],['stato','stato'],['scadenza','scadenza'],['data_pagamento','dataPagamento'],['note','note']],
+  spese: [['data','data'],['categoria','categoria'],['descrizione','descrizione'],['importo','importo']],
+  magazzino: [['nome','nome'],['quantita','quantita'],['scorta','scorta'],['prezzo','prezzo'],['fornitore','fornitore']],
+};
+function fromDb(table,row){ const o={id:row.id}; FIELD_MAPS[table].forEach(([db,js])=>{ o[js]=row[db]; }); return o; }
+function toDb(table,obj){ const o={}; FIELD_MAPS[table].forEach(([db,js])=>{ o[db]=obj[js]; }); return o; }
+
+async function loadAll(){
+  for(const k of KEYS){
+    const {data,error} = await supabase.from(k).select('*').order('created_at',{ascending:false});
+    DB[k] = (error || !data) ? [] : data.map(r=>fromDb(k,r));
+    if(error) console.error(k, error.message);
+  }
+}
+
+function subscribeRealtime(){
+  realtimeChannels.forEach(ch=>supabase.removeChannel(ch));
+  realtimeChannels = KEYS.map(k=>
+    supabase.channel('sync:'+k)
+      .on('postgres_changes', {event:'*', schema:'public', table:k}, async ()=>{
+        const {data,error} = await supabase.from(k).select('*').order('created_at',{ascending:false});
+        if(!error && data){ DB[k] = data.map(r=>fromDb(k,r)); render(); }
+      })
+      .subscribe()
+  );
+}
+
+/* ============ HELPERS ============ */
+function eur(n){ return (Number(n)||0).toLocaleString('it-IT',{style:'currency',currency:'EUR'}); }
+function fmtDate(d){ if(!d) return '—'; const dt=new Date(d+'T00:00:00'); return dt.toLocaleDateString('it-IT',{day:'2-digit',month:'short',year:'numeric'}); }
+function todayISO(){ return new Date().toISOString().slice(0,10); }
+function esc(s){ return (s??'').toString().replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+function clienteName(id){ const c=DB.clienti.find(x=>x.id===id); return c?c.nome:'—'; }
+function vociTotale(voci){ return (voci||[]).reduce((s,v)=>s+(Number(v.qta)||0)*(Number(v.prezzo)||0),0); }
+function nextNumero(list, prefix, year){
+  const yearItems = list.filter(x=>x.numero && x.numero.endsWith('/'+year));
+  const n = yearItems.length + 1;
+  return `${prefix}${n}/${year}`;
+}
+function toast(msg, kind){
+  const t=document.getElementById('toast'); const dot=t.querySelector('.dot');
+  document.getElementById('toast-msg').textContent = msg;
+  dot.style.background = kind==='danger' ? 'var(--danger)' : 'var(--ok)';
+  t.classList.add('show');
+  clearTimeout(window._toastTimer);
+  window._toastTimer = setTimeout(()=>t.classList.remove('show'), 2600);
+}
+function confirmDelete(msg){ return window.confirm(msg); }
+
+/* ============ AUTH ============ */
+async function doLogin(){
+  const email = document.getElementById('login-email').value.trim();
+  const password = document.getElementById('login-password').value;
+  const errBox = document.getElementById('login-error');
+  errBox.classList.remove('show');
+  if(!email || !password){ errBox.textContent='Inserisci email e password.'; errBox.classList.add('show'); return; }
+  const btn = document.getElementById('login-btn');
+  btn.disabled = true; btn.textContent = 'Accesso in corso…';
+  const {data,error} = await supabase.auth.signInWithPassword({email,password});
+  btn.disabled = false; btn.textContent = 'Accedi';
+  if(error){
+    errBox.textContent = 'Credenziali non valide. Contatta il titolare per un accesso.';
+    errBox.classList.add('show');
+    return;
+  }
+  await enterApp(data.session);
+}
+async function doLogout(){
+  await supabase.auth.signOut();
+  realtimeChannels.forEach(ch=>supabase.removeChannel(ch));
+  realtimeChannels = [];
+  document.getElementById('app').style.display='none';
+  document.getElementById('login-screen').style.display='flex';
+  document.getElementById('login-email').value='';
+  document.getElementById('login-password').value='';
+}
+async function enterApp(session){
+  document.getElementById('user-email').textContent = session.user.email;
+  document.getElementById('login-screen').style.display='none';
+  document.getElementById('loading').style.display='flex';
+  await loadAll();
+  subscribeRealtime();
+  renderNav();
+  render();
+  document.getElementById('loading').style.display='none';
+  document.getElementById('app').style.display='flex';
+}
+
+/* ============ NAV ============ */
+const TABS = [
+  {id:'dashboard', label:'Dashboard', icon:'dashboard'},
+  {id:'clienti', label:'Clienti', icon:'clienti'},
+  {id:'interventi', label:'Interventi', icon:'interventi'},
+  {id:'preventivi', label:'Preventivi', icon:'preventivi'},
+  {id:'fatture', label:'Fatture', icon:'fatture'},
+  {id:'spese', label:'Spese', icon:'spese'},
+  {id:'magazzino', label:'Magazzino', icon:'magazzino'},
+];
+function renderNav(){
+  const nav = document.getElementById('nav');
+  nav.innerHTML = TABS.map(t=>`
+    <div class="nav-item ${currentTab===t.id?'active':''}" onclick="switchTab('${t.id}')">
+      ${icon(t.icon)}<span>${t.label}</span>
+    </div>`).join('');
+}
+function switchTab(id){ currentTab = id; renderNav(); render(); document.getElementById('sidebar').classList.remove('open'); }
+
+/* ============ RENDER ROUTER ============ */
+function render(){
+  const c = document.getElementById('content');
+  if(currentTab==='dashboard') c.innerHTML = renderDashboard();
+  else if(currentTab==='clienti') c.innerHTML = renderClienti();
+  else if(currentTab==='interventi') c.innerHTML = renderInterventi();
+  else if(currentTab==='preventivi') c.innerHTML = renderPreventivi();
+  else if(currentTab==='fatture') c.innerHTML = renderFatture();
+  else if(currentTab==='spese') c.innerHTML = renderSpese();
+  else if(currentTab==='magazzino') c.innerHTML = renderMagazzino();
+}
+
+/* ============ DASHBOARD ============ */
+function renderDashboard(){
+  const year = new Date().getFullYear();
+  const fattureAnno = DB.fatture.filter(f=>f.data && f.data.startsWith(String(year)));
+  const fatturato = fattureAnno.reduce((s,f)=>s+vociTotale(f.voci),0);
+  const daIncassare = DB.fatture.filter(f=>f.stato==='da_pagare');
+  const daIncassareTot = daIncassare.reduce((s,f)=>s+vociTotale(f.voci),0);
+  const interventiInCorso = DB.interventi.filter(i=>i.stato==='in_corso').length;
+  const oggi = todayISO();
+  const in7 = new Date(Date.now()+7*86400000).toISOString().slice(0,10);
+  const prossimi = DB.interventi.filter(i=>i.data>=oggi && i.data<=in7 && i.stato!=='completato').sort((a,b)=>a.data.localeCompare(b.data));
+  const speseAnno = DB.spese.filter(s=>s.data && s.data.startsWith(String(year))).reduce((s,x)=>s+Number(x.importo||0),0);
+  const monthly = Array(12).fill(0);
+  fattureAnno.forEach(f=>{ const m=new Date(f.data+'T00:00:00').getMonth(); monthly[m]+=vociTotale(f.voci); });
+  const max = Math.max(...monthly,1);
+  const mesi = ['G','F','M','A','M','G','L','A','S','O','N','D'];
+  return `
+    <div class="page-header"><div><div class="page-title">Dashboard</div><div class="page-sub">Panoramica ${year}</div></div></div>
+    <div class="cards">
+      <div class="card"><div class="k">Fatturato ${year}</div><div class="v">${eur(fatturato)}</div><div class="delta">${fattureAnno.length} fatture emesse</div></div>
+      <div class="card"><div class="k">Da incassare</div><div class="v" style="color:${daIncassareTot>0?'#FBBF24':'inherit'}">${eur(daIncassareTot)}</div><div class="delta">${daIncassare.length} fatture in attesa</div></div>
+      <div class="card"><div class="k">Interventi in corso</div><div class="v">${interventiInCorso}</div><div class="delta">${DB.interventi.length} totali registrati</div></div>
+      <div class="card"><div class="k">Spese ${year}</div><div class="v">${eur(speseAnno)}</div><div class="delta">totale costi registrati</div></div>
+    </div>
+    <div class="panel"><div class="panel-head"><h3>Fatturato mensile</h3></div>
+      <div class="panel-body pad"><div class="chart">${monthly.map((v,i)=>`<div class="bar-wrap"><div class="bar" style="height:${Math.max((v/max)*100,2)}%" title="${eur(v)}"></div><div class="lbl">${mesi[i]}</div></div>`).join('')}</div></div>
+    </div>
+    <div class="panel"><div class="panel-head"><h3>Prossimi 7 giorni</h3></div>
+      <div class="panel-body">${prossimi.length? `<table><tbody>${prossimi.map(i=>`<tr><td style="width:110px">${fmtDate(i.data)}</td><td>${esc(clienteName(i.clienteId))}</td><td class="text-dim">${esc(i.tipo)}</td><td>${statoBadge(i.stato)}</td></tr>`).join('')}</tbody></table>` : `<div class="empty">Nessun intervento in programma nei prossimi 7 giorni</div>`}</div>
+    </div>`;
+}
+function statoBadge(stato){
+  const map = {
+    da_programmare:['neutral','Da programmare'], programmato:['info','Programmato'],
+    in_corso:['warn','In corso'], completato:['ok','Completato'],
+    bozza:['neutral','Bozza'], inviato:['info','Inviato'], accettato:['ok','Accettato'], rifiutato:['danger','Rifiutato'],
+    da_pagare:['warn','Da incassare'], pagata:['ok','Pagata'],
+  };
+  const [cls,label] = map[stato] || ['neutral',stato];
+  return `<span class="badge ${cls}">${label}</span>`;
+}
+function statoLabel(s){ const el=document.createElement('div'); el.innerHTML=statoBadge(s); return el.textContent; }
+function emptyState(what,msg){ return `<div class="empty"><div class="big">—</div>Nessun ${what} presente.<br>${msg}</div>`; }
+function clienteOptions(selected){
+  if(!DB.clienti.length) return `<option value="">— nessun cliente, aggiungine uno —</option>`;
+  return DB.clienti.map(c=>`<option value="${c.id}" ${c.id===selected?'selected':''}>${esc(c.nome)}</option>`).join('');
+}
+
+/* ============ CLIENTI ============ */
+function renderClienti(){
+  const list = DB.clienti;
+  return `
+    <div class="page-header"><div><div class="page-title">Clienti</div><div class="page-sub">${list.length} palestre / clienti registrati</div></div>
+      <button class="btn" onclick="openClienteForm()">${icon('plus')} Nuovo cliente</button></div>
+    <div class="panel"><div class="panel-body">
+      ${list.length? `<table><thead><tr><th>Nome</th><th>Città</th><th>Referente</th><th>Telefono</th><th></th></tr></thead>
+        <tbody>${list.map(c=>`<tr><td><strong>${esc(c.nome)}</strong></td><td class="text-dim">${esc(c.citta)||'—'}</td><td class="text-dim">${esc(c.referente)||'—'}</td><td class="text-dim">${esc(c.telefono)||'—'}</td>
+          <td><div class="row-actions"><button class="icon-btn" onclick="openClienteForm('${c.id}')">${icon('edit')}</button><button class="icon-btn" onclick="deleteCliente('${c.id}')">${icon('trash')}</button></div></td></tr>`).join('')}</tbody></table>`
+        : emptyState('clienti','Aggiungi la prima palestra o cliente da gestire')}
+    </div></div>`;
+}
+function openClienteForm(id){
+  const c = id ? DB.clienti.find(x=>x.id===id) : null;
+  showModal(`
+    <h2>${c?'Modifica cliente':'Nuovo cliente'}</h2>
+    <div class="modal-sub">Dati anagrafici della palestra / cliente</div>
+    <div class="form-row"><label>Nome palestra / azienda *</label><input class="input" id="f-nome" value="${esc(c?.nome)||''}"></div>
+    <div class="form-grid"><div class="form-row"><label>Città</label><input class="input" id="f-citta" value="${esc(c?.citta)||''}"></div>
+      <div class="form-row"><label>Telefono</label><input class="input" id="f-telefono" value="${esc(c?.telefono)||''}"></div></div>
+    <div class="form-row"><label>Indirizzo</label><input class="input" id="f-indirizzo" value="${esc(c?.indirizzo)||''}"></div>
+    <div class="form-grid"><div class="form-row"><label>Referente</label><input class="input" id="f-referente" value="${esc(c?.referente)||''}"></div>
+      <div class="form-row"><label>Email</label><input class="input" id="f-email" value="${esc(c?.email)||''}"></div></div>
+    <div class="form-row"><label>Note</label><textarea class="input" id="f-note" rows="2">${esc(c?.note)||''}</textarea></div>
+    <div class="modal-actions"><button class="btn secondary" onclick="closeModal()">Annulla</button>
+      <button class="btn" onclick="saveCliente('${id||''}')">${icon('check')} Salva</button></div>
+  `);
+}
+async function saveCliente(id){
+  const nome = document.getElementById('f-nome').value.trim();
+  if(!nome){ toast('Il nome è obbligatorio','danger'); return; }
+  const obj = { nome, citta:document.getElementById('f-citta').value.trim(), telefono:document.getElementById('f-telefono').value.trim(),
+    indirizzo:document.getElementById('f-indirizzo').value.trim(), referente:document.getElementById('f-referente').value.trim(),
+    email:document.getElementById('f-email').value.trim(), note:document.getElementById('f-note').value.trim() };
+  const payload = toDb('clienti', obj);
+  if(id){
+    const {data,error} = await supabase.from('clienti').update(payload).eq('id',id).select().single();
+    if(error){ toast('Errore salvataggio','danger'); return; }
+    Object.assign(DB.clienti.find(x=>x.id===id), fromDb('clienti',data));
+  } else {
+    const {data,error} = await supabase.from('clienti').insert(payload).select().single();
+    if(error){ toast('Errore salvataggio','danger'); return; }
+    DB.clienti.unshift(fromDb('clienti',data));
+  }
+  closeModal(); render(); toast('Cliente salvato');
+}
+async function deleteCliente(id){
+  if(!confirmDelete('Eliminare questo cliente?')) return;
+  const {error} = await supabase.from('clienti').delete().eq('id',id);
+  if(error){ toast('Errore eliminazione','danger'); return; }
+  DB.clienti = DB.clienti.filter(x=>x.id!==id);
+  render(); toast('Cliente eliminato');
+}
+
+/* ============ INTERVENTI ============ */
+let interventiFilter = 'tutti';
+function renderInterventi(){
+  let list = [...DB.interventi].sort((a,b)=>(b.data||'').localeCompare(a.data||''));
+  if(interventiFilter!=='tutti') list = list.filter(i=>i.stato===interventiFilter);
+  return `
+    <div class="page-header"><div><div class="page-title">Interventi</div><div class="page-sub">Manutenzioni, riparazioni e installazioni</div></div>
+      <button class="btn" onclick="openInterventoForm()">${icon('plus')} Nuovo intervento</button></div>
+    <div class="panel"><div class="filters">
+      ${['tutti','da_programmare','programmato','in_corso','completato'].map(s=>`<button class="btn ghost" style="${interventiFilter===s?'border-color:var(--accent);color:#fff':''}" onclick="interventiFilter='${s}';render()">${s==='tutti'?'Tutti':statoLabel(s)}</button>`).join('')}
+    </div><div class="panel-body">
+      ${list.length? `<table><thead><tr><th>Data</th><th>Cliente</th><th>Tipo</th><th>Stato</th><th class="text-right">Costo</th><th></th></tr></thead>
+        <tbody>${list.map(i=>`<tr><td>${fmtDate(i.data)}</td><td><strong>${esc(clienteName(i.clienteId))}</strong></td><td class="text-dim">${esc(i.tipo)}</td><td>${statoBadge(i.stato)}</td><td class="text-right mono">${eur(i.costo)}</td>
+          <td><div class="row-actions"><button class="icon-btn" onclick="openInterventoForm('${i.id}')">${icon('edit')}</button><button class="icon-btn" onclick="deleteIntervento('${i.id}')">${icon('trash')}</button></div></td></tr>`).join('')}</tbody></table>`
+        : emptyState('intervento','Registra la prima manutenzione o riparazione')}
+    </div></div>`;
+}
+function openInterventoForm(id){
+  const i = id ? DB.interventi.find(x=>x.id===id) : null;
+  showModal(`
+    <h2>${i?'Modifica intervento':'Nuovo intervento'}</h2>
+    <div class="modal-sub">Manutenzione, riparazione o installazione</div>
+    <div class="form-grid"><div class="form-row"><label>Cliente *</label><select class="select" id="f-cliente">${clienteOptions(i?.clienteId)}</select></div>
+      <div class="form-row"><label>Data *</label><input class="input" type="date" id="f-data" value="${i?.data||todayISO()}"></div></div>
+    <div class="form-grid"><div class="form-row"><label>Tipo</label><select class="select" id="f-tipo">${['Manutenzione','Riparazione','Installazione','Ispezione'].map(t=>`<option ${i?.tipo===t?'selected':''}>${t}</option>`).join('')}</select></div>
+      <div class="form-row"><label>Stato</label><select class="select" id="f-stato">${[['da_programmare','Da programmare'],['programmato','Programmato'],['in_corso','In corso'],['completato','Completato']].map(([v,l])=>`<option value="${v}" ${i?.stato===v?'selected':''}>${l}</option>`).join('')}</select></div></div>
+    <div class="form-row"><label>Descrizione / macchinari</label><textarea class="input" id="f-descrizione" rows="2">${esc(i?.descrizione)||''}</textarea></div>
+    <div class="form-row"><label>Costo (€)</label><input class="input" type="number" step="0.01" id="f-costo" value="${i?.costo||''}"></div>
+    <div class="form-row"><label>Note</label><textarea class="input" id="f-note" rows="2">${esc(i?.note)||''}</textarea></div>
+    <div class="modal-actions"><button class="btn secondary" onclick="closeModal()">Annulla</button><button class="btn" onclick="saveIntervento('${id||''}')">${icon('check')} Salva</button></div>
+  `);
+}
+async function saveIntervento(id){
+  const clienteId = document.getElementById('f-cliente').value;
+  if(!clienteId){ toast('Seleziona o crea prima un cliente','danger'); return; }
+  const obj = { clienteId, data:document.getElementById('f-data').value, tipo:document.getElementById('f-tipo').value,
+    stato:document.getElementById('f-stato').value, descrizione:document.getElementById('f-descrizione').value.trim(),
+    costo:Number(document.getElementById('f-costo').value)||0, note:document.getElementById('f-note').value.trim() };
+  const payload = toDb('interventi', obj);
+  if(id){
+    const {data,error} = await supabase.from('interventi').update(payload).eq('id',id).select().single();
+    if(error){ toast('Errore salvataggio','danger'); return; }
+    Object.assign(DB.interventi.find(x=>x.id===id), fromDb('interventi',data));
+  } else {
+    const {data,error} = await supabase.from('interventi').insert(payload).select().single();
+    if(error){ toast('Errore salvataggio','danger'); return; }
+    DB.interventi.unshift(fromDb('interventi',data));
+  }
+  closeModal(); render(); toast('Intervento salvato');
+}
+async function deleteIntervento(id){
+  if(!confirmDelete('Eliminare questo intervento?')) return;
+  const {error} = await supabase.from('interventi').delete().eq('id',id);
+  if(error){ toast('Errore eliminazione','danger'); return; }
+  DB.interventi = DB.interventi.filter(x=>x.id!==id);
+  render(); toast('Intervento eliminato');
+}
+
+/* ============ VOCI EDITOR ============ */
+let editingVoci = [];
+function vociEditorHtml(){
+  return `<table class="voci-table"><thead><tr><th style="width:auto">Descrizione</th><th style="width:60px">Qtà</th><th style="width:90px">Prezzo €</th><th style="width:90px" class="text-right">Totale</th><th style="width:28px"></th></tr></thead>
+    <tbody id="voci-body">${editingVoci.map((v,idx)=>vociRow(v,idx)).join('')}</tbody></table>
+    <button class="btn ghost small" onclick="addVoceRow()">${icon('plus')} Riga</button>
+    <div class="voci-total"><span class="text-dim" style="font-weight:400;font-size:12.5px;">Totale</span><span id="voci-total-val">${eur(vociTotale(editingVoci))}</span></div>`;
+}
+function vociRow(v,idx){
+  return `<tr><td><input class="input" value="${esc(v.desc)}" oninput="updateVoce(${idx},'desc',this.value)"></td>
+    <td><input class="input" type="number" step="1" value="${v.qta}" oninput="updateVoce(${idx},'qta',this.value)"></td>
+    <td><input class="input" type="number" step="0.01" value="${v.prezzo}" oninput="updateVoce(${idx},'prezzo',this.value)"></td>
+    <td class="text-right mono" id="voce-tot-${idx}">${eur((v.qta||0)*(v.prezzo||0))}</td>
+    <td><button class="icon-btn" onclick="removeVoceRow(${idx})">${icon('x')}</button></td></tr>`;
+}
+function addVoceRow(){ editingVoci.push({desc:'',qta:1,prezzo:0}); refreshVoci(); }
+function removeVoceRow(idx){ editingVoci.splice(idx,1); refreshVoci(); }
+function updateVoce(idx,field,val){
+  editingVoci[idx][field] = (field==='desc') ? val : Number(val)||0;
+  document.getElementById('voce-tot-'+idx).textContent = eur((editingVoci[idx].qta||0)*(editingVoci[idx].prezzo||0));
+  document.getElementById('voci-total-val').textContent = eur(vociTotale(editingVoci));
+}
+function refreshVoci(){
+  document.getElementById('voci-body').innerHTML = editingVoci.map((v,idx)=>vociRow(v,idx)).join('');
+  document.getElementById('voci-total-val').textContent = eur(vociTotale(editingVoci));
+}
+
+/* ============ PREVENTIVI ============ */
+function renderPreventivi(){
+  const list = [...DB.preventivi].sort((a,b)=>(b.data||'').localeCompare(a.data||''));
+  return `
+    <div class="page-header"><div><div class="page-title">Preventivi</div><div class="page-sub">${list.length} preventivi</div></div>
+      <button class="btn" onclick="openPreventivoForm()">${icon('plus')} Nuovo preventivo</button></div>
+    <div class="panel"><div class="panel-body">
+      ${list.length? `<table><thead><tr><th>Numero</th><th>Cliente</th><th>Data</th><th class="text-right">Totale</th><th>Stato</th><th></th></tr></thead>
+        <tbody>${list.map(p=>`<tr><td class="mono">${esc(p.numero)}</td><td><strong>${esc(clienteName(p.clienteId))}</strong></td><td>${fmtDate(p.data)}</td><td class="text-right mono">${eur(vociTotale(p.voci))}</td><td>${statoBadge(p.stato)}</td>
+          <td><div class="row-actions">${p.stato==='accettato'?`<button class="icon-btn" title="Converti in fattura" onclick="convertPreventivo('${p.id}')">${icon('convert')}</button>`:''}
+          <button class="icon-btn" onclick="openPreventivoForm('${p.id}')">${icon('edit')}</button><button class="icon-btn" onclick="deletePreventivo('${p.id}')">${icon('trash')}</button></div></td></tr>`).join('')}</tbody></table>`
+        : emptyState('preventivo','Crea il primo preventivo per un cliente')}
+    </div></div>`;
+}
+function openPreventivoForm(id){
+  const p = id ? DB.preventivi.find(x=>x.id===id) : null;
+  editingVoci = p ? JSON.parse(JSON.stringify(p.voci||[])) : [{desc:'',qta:1,prezzo:0}];
+  showModal(`
+    <h2>${p?'Modifica preventivo':'Nuovo preventivo'}</h2>
+    <div class="modal-sub">${p?esc(p.numero):'Numero assegnato al salvataggio'}</div>
+    <div class="form-grid"><div class="form-row"><label>Cliente *</label><select class="select" id="f-cliente">${clienteOptions(p?.clienteId)}</select></div>
+      <div class="form-row"><label>Data</label><input class="input" type="date" id="f-data" value="${p?.data||todayISO()}"></div></div>
+    <div class="form-row"><label>Voci</label>${vociEditorHtml()}</div>
+    <div class="form-grid"><div class="form-row"><label>Stato</label><select class="select" id="f-stato">${[['bozza','Bozza'],['inviato','Inviato'],['accettato','Accettato'],['rifiutato','Rifiutato']].map(([v,l])=>`<option value="${v}" ${p?.stato===v?'selected':''}>${l}</option>`).join('')}</select></div>
+      <div class="form-row"><label>Validità (data)</label><input class="input" type="date" id="f-scadenza" value="${p?.scadenza||''}"></div></div>
+    <div class="form-row"><label>Note</label><textarea class="input" id="f-note" rows="2">${esc(p?.note)||''}</textarea></div>
+    <div class="modal-actions"><button class="btn secondary" onclick="closeModal()">Annulla</button><button class="btn" onclick="savePreventivo('${id||''}')">${icon('check')} Salva</button></div>
+  `);
+}
+async function savePreventivo(id){
+  const clienteId = document.getElementById('f-cliente').value;
+  if(!clienteId){ toast('Seleziona o crea prima un cliente','danger'); return; }
+  const voci = editingVoci.filter(v=>v.desc.trim()!=='' || v.prezzo>0);
+  const obj = { clienteId, data:document.getElementById('f-data').value, voci, stato:document.getElementById('f-stato').value,
+    scadenza:document.getElementById('f-scadenza').value || null, note:document.getElementById('f-note').value.trim() };
+  if(id){
+    const payload = toDb('preventivi', obj);
+    const {data,error} = await supabase.from('preventivi').update(payload).eq('id',id).select().single();
+    if(error){ toast('Errore salvataggio','danger'); return; }
+    Object.assign(DB.preventivi.find(x=>x.id===id), fromDb('preventivi',data));
+  } else {
+    const year = new Date(obj.data||todayISO()).getFullYear();
+    obj.numero = nextNumero(DB.preventivi,'P',''+year);
+    const payload = toDb('preventivi', obj);
+    const {data,error} = await supabase.from('preventivi').insert(payload).select().single();
+    if(error){ toast('Errore salvataggio','danger'); return; }
+    DB.preventivi.unshift(fromDb('preventivi',data));
+  }
+  closeModal(); render(); toast('Preventivo salvato');
+}
+async function deletePreventivo(id){
+  if(!confirmDelete('Eliminare questo preventivo?')) return;
+  const {error} = await supabase.from('preventivi').delete().eq('id',id);
+  if(error){ toast('Errore eliminazione','danger'); return; }
+  DB.preventivi = DB.preventivi.filter(x=>x.id!==id);
+  render(); toast('Preventivo eliminato');
+}
+async function convertPreventivo(id){
+  const p = DB.preventivi.find(x=>x.id===id);
+  if(!p) return;
+  const year = new Date().getFullYear();
+  const obj = { numero: nextNumero(DB.fatture,'',''+year), clienteId:p.clienteId, data:todayISO(),
+    voci:JSON.parse(JSON.stringify(p.voci)), stato:'da_pagare', scadenza:null, dataPagamento:null, note:'Da preventivo '+p.numero };
+  const payload = toDb('fatture', obj);
+  const {data,error} = await supabase.from('fatture').insert(payload).select().single();
+  if(error){ toast('Errore creazione fattura','danger'); return; }
+  DB.fatture.unshift(fromDb('fatture',data));
+  toast('Fattura '+obj.numero+' creata dal preventivo');
+  switchTab('fatture');
+}
+
+/* ============ FATTURE ============ */
+function renderFatture(){
+  const list = [...DB.fatture].sort((a,b)=>(b.data||'').localeCompare(a.data||''));
+  return `
+    <div class="page-header"><div><div class="page-title">Fatture</div><div class="page-sub">${list.length} fatture emesse</div></div>
+      <button class="btn" onclick="openFatturaForm()">${icon('plus')} Nuova fattura</button></div>
+    <div class="panel"><div class="panel-body">
+      ${list.length? `<table><thead><tr><th>Numero</th><th>Cliente</th><th>Data</th><th class="text-right">Totale</th><th>Stato</th><th></th></tr></thead>
+        <tbody>${list.map(f=>`<tr><td class="mono">${esc(f.numero)}</td><td><strong>${esc(clienteName(f.clienteId))}</strong></td><td>${fmtDate(f.data)}</td><td class="text-right mono">${eur(vociTotale(f.voci))}</td><td>${statoBadge(f.stato)}</td>
+          <td><div class="row-actions">${f.stato==='da_pagare'?`<button class="icon-btn" title="Segna come pagata" onclick="markPagata('${f.id}')">${icon('check')}</button>`:''}
+          <button class="icon-btn" onclick="openFatturaForm('${f.id}')">${icon('edit')}</button><button class="icon-btn" onclick="deleteFattura('${f.id}')">${icon('trash')}</button></div></td></tr>`).join('')}</tbody></table>`
+        : emptyState('fattura','Emetti la prima fattura, anche direttamente da un preventivo accettato')}
+    </div></div>`;
+}
+function openFatturaForm(id){
+  const f = id ? DB.fatture.find(x=>x.id===id) : null;
+  editingVoci = f ? JSON.parse(JSON.stringify(f.voci||[])) : [{desc:'',qta:1,prezzo:0}];
+  showModal(`
+    <h2>${f?'Modifica fattura':'Nuova fattura'}</h2>
+    <div class="modal-sub">${f?esc(f.numero):'Numero assegnato al salvataggio'} · Regime forfettario, IVA non esposta</div>
+    <div class="form-grid"><div class="form-row"><label>Cliente *</label><select class="select" id="f-cliente">${clienteOptions(f?.clienteId)}</select></div>
+      <div class="form-row"><label>Data</label><input class="input" type="date" id="f-data" value="${f?.data||todayISO()}"></div></div>
+    <div class="form-row"><label>Voci</label>${vociEditorHtml()}</div>
+    <div class="form-grid"><div class="form-row"><label>Stato</label><select class="select" id="f-stato">${[['da_pagare','Da incassare'],['pagata','Pagata']].map(([v,l])=>`<option value="${v}" ${f?.stato===v?'selected':''}>${l}</option>`).join('')}</select></div>
+      <div class="form-row"><label>Scadenza pagamento</label><input class="input" type="date" id="f-scadenza" value="${f?.scadenza||''}"></div></div>
+    <div class="form-row"><label>Note</label><textarea class="input" id="f-note" rows="2">${esc(f?.note)||''}</textarea></div>
+    <div class="modal-actions"><button class="btn secondary" onclick="closeModal()">Annulla</button><button class="btn" onclick="saveFattura('${id||''}')">${icon('check')} Salva</button></div>
+  `);
+}
+async function saveFattura(id){
+  const clienteId = document.getElementById('f-cliente').value;
+  if(!clienteId){ toast('Seleziona o crea prima un cliente','danger'); return; }
+  const voci = editingVoci.filter(v=>v.desc.trim()!=='' || v.prezzo>0);
+  const obj = { clienteId, data:document.getElementById('f-data').value, voci, stato:document.getElementById('f-stato').value,
+    scadenza:document.getElementById('f-scadenza').value || null, note:document.getElementById('f-note').value.trim() };
+  if(id){
+    const payload = toDb('fatture', obj);
+    const {data,error} = await supabase.from('fatture').update(payload).eq('id',id).select().single();
+    if(error){ toast('Errore salvataggio','danger'); return; }
+    Object.assign(DB.fatture.find(x=>x.id===id), fromDb('fatture',data));
+  } else {
+    const year = new Date(obj.data||todayISO()).getFullYear();
+    obj.numero = nextNumero(DB.fatture,'',''+year);
+    obj.dataPagamento = null;
+    const payload = toDb('fatture', obj);
+    const {data,error} = await supabase.from('fatture').insert(payload).select().single();
+    if(error){ toast('Errore salvataggio','danger'); return; }
+    DB.fatture.unshift(fromDb('fatture',data));
+  }
+  closeModal(); render(); toast('Fattura salvata');
+}
+async function markPagata(id){
+  const payload = { stato:'pagata', data_pagamento: todayISO() };
+  const {data,error} = await supabase.from('fatture').update(payload).eq('id',id).select().single();
+  if(error){ toast('Errore aggiornamento','danger'); return; }
+  Object.assign(DB.fatture.find(x=>x.id===id), fromDb('fatture',data));
+  render(); toast('Fattura segnata come pagata');
+}
+async function deleteFattura(id){
+  if(!confirmDelete('Eliminare questa fattura?')) return;
+  const {error} = await supabase.from('fatture').delete().eq('id',id);
+  if(error){ toast('Errore eliminazione','danger'); return; }
+  DB.fatture = DB.fatture.filter(x=>x.id!==id);
+  render(); toast('Fattura eliminata');
+}
+
+/* ============ SPESE ============ */
+function renderSpese(){
+  const list = [...DB.spese].sort((a,b)=>(b.data||'').localeCompare(a.data||''));
+  const tot = list.reduce((s,x)=>s+Number(x.importo||0),0);
+  return `
+    <div class="page-header"><div><div class="page-title">Spese</div><div class="page-sub">${list.length} spese · totale ${eur(tot)}</div></div>
+      <button class="btn" onclick="openSpesaForm()">${icon('plus')} Nuova spesa</button></div>
+    <div class="panel"><div class="panel-body">
+      ${list.length? `<table><thead><tr><th>Data</th><th>Categoria</th><th>Descrizione</th><th class="text-right">Importo</th><th></th></tr></thead>
+        <tbody>${list.map(s=>`<tr><td>${fmtDate(s.data)}</td><td><span class="badge neutral">${esc(s.categoria)}</span></td><td class="text-dim">${esc(s.descrizione)||'—'}</td><td class="text-right mono">${eur(s.importo)}</td>
+          <td><div class="row-actions"><button class="icon-btn" onclick="openSpesaForm('${s.id}')">${icon('edit')}</button><button class="icon-btn" onclick="deleteSpesa('${s.id}')">${icon('trash')}</button></div></td></tr>`).join('')}</tbody></table>`
+        : emptyState('spesa','Registra carburante, materiali e altri costi')}
+    </div></div>`;
+}
+function openSpesaForm(id){
+  const s = id ? DB.spese.find(x=>x.id===id) : null;
+  const cats = ['Carburante','Materiali/Ricambi','Attrezzatura','Assicurazione','Manutenzione furgone','Altro'];
+  showModal(`
+    <h2>${s?'Modifica spesa':'Nuova spesa'}</h2>
+    <div class="form-grid"><div class="form-row"><label>Data</label><input class="input" type="date" id="f-data" value="${s?.data||todayISO()}"></div>
+      <div class="form-row"><label>Importo (€) *</label><input class="input" type="number" step="0.01" id="f-importo" value="${s?.importo||''}"></div></div>
+    <div class="form-row"><label>Categoria</label><select class="select" id="f-categoria">${cats.map(c=>`<option ${s?.categoria===c?'selected':''}>${c}</option>`).join('')}</select></div>
+    <div class="form-row"><label>Descrizione</label><input class="input" id="f-descrizione" value="${esc(s?.descrizione)||''}"></div>
+    <div class="modal-actions"><button class="btn secondary" onclick="closeModal()">Annulla</button><button class="btn" onclick="saveSpesa('${id||''}')">${icon('check')} Salva</button></div>
+  `);
+}
+async function saveSpesa(id){
+  const importo = Number(document.getElementById('f-importo').value)||0;
+  if(importo<=0){ toast('Inserisci un importo valido','danger'); return; }
+  const obj = { data:document.getElementById('f-data').value, importo, categoria:document.getElementById('f-categoria').value, descrizione:document.getElementById('f-descrizione').value.trim() };
+  const payload = toDb('spese', obj);
+  if(id){
+    const {data,error} = await supabase.from('spese').update(payload).eq('id',id).select().single();
+    if(error){ toast('Errore salvataggio','danger'); return; }
+    Object.assign(DB.spese.find(x=>x.id===id), fromDb('spese',data));
+  } else {
+    const {data,error} = await supabase.from('spese').insert(payload).select().single();
+    if(error){ toast('Errore salvataggio','danger'); return; }
+    DB.spese.unshift(fromDb('spese',data));
+  }
+  closeModal(); render(); toast('Spesa salvata');
+}
+async function deleteSpesa(id){
+  if(!confirmDelete('Eliminare questa spesa?')) return;
+  const {error} = await supabase.from('spese').delete().eq('id',id);
+  if(error){ toast('Errore eliminazione','danger'); return; }
+  DB.spese = DB.spese.filter(x=>x.id!==id);
+  render(); toast('Spesa eliminata');
+}
+
+/* ============ MAGAZZINO ============ */
+function renderMagazzino(){
+  const list = [...DB.magazzino].sort((a,b)=>a.nome.localeCompare(b.nome));
+  return `
+    <div class="page-header"><div><div class="page-title">Magazzino</div><div class="page-sub">Ricambi e materiali</div></div>
+      <button class="btn" onclick="openMagazzinoForm()">${icon('plus')} Nuovo articolo</button></div>
+    <div class="panel"><div class="panel-body">
+      ${list.length? `<table><thead><tr><th>Articolo</th><th>Quantità</th><th>Prezzo unit.</th><th>Fornitore</th><th></th></tr></thead>
+        <tbody>${list.map(m=>{ const low = Number(m.quantita) <= Number(m.scorta||0);
+          return `<tr><td><strong>${esc(m.nome)}</strong></td><td>${low?`<span class="badge warn">${m.quantita} — scorta bassa</span>`:m.quantita}</td><td class="mono">${eur(m.prezzo)}</td><td class="text-dim">${esc(m.fornitore)||'—'}</td>
+          <td><div class="row-actions"><button class="icon-btn" onclick="openMagazzinoForm('${m.id}')">${icon('edit')}</button><button class="icon-btn" onclick="deleteMagazzino('${m.id}')">${icon('trash')}</button></div></td></tr>`; }).join('')}</tbody></table>`
+        : emptyState('articolo','Aggiungi ricambi e materiali che tieni in furgone')}
+    </div></div>`;
+}
+function openMagazzinoForm(id){
+  const m = id ? DB.magazzino.find(x=>x.id===id) : null;
+  showModal(`
+    <h2>${m?'Modifica articolo':'Nuovo articolo'}</h2>
+    <div class="form-row"><label>Nome articolo *</label><input class="input" id="f-nome" value="${esc(m?.nome)||''}"></div>
+    <div class="form-grid"><div class="form-row"><label>Quantità</label><input class="input" type="number" id="f-quantita" value="${m?.quantita??0}"></div>
+      <div class="form-row"><label>Scorta minima</label><input class="input" type="number" id="f-scorta" value="${m?.scorta??0}"></div></div>
+    <div class="form-grid"><div class="form-row"><label>Prezzo unitario (€)</label><input class="input" type="number" step="0.01" id="f-prezzo" value="${m?.prezzo||''}"></div>
+      <div class="form-row"><label>Fornitore</label><input class="input" id="f-fornitore" value="${esc(m?.fornitore)||''}"></div></div>
+    <div class="modal-actions"><button class="btn secondary" onclick="closeModal()">Annulla</button><button class="btn" onclick="saveMagazzino('${id||''}')">${icon('check')} Salva</button></div>
+  `);
+}
+async function saveMagazzino(id){
+  const nome = document.getElementById('f-nome').value.trim();
+  if(!nome){ toast('Il nome è obbligatorio','danger'); return; }
+  const obj = { nome, quantita:Number(document.getElementById('f-quantita').value)||0, scorta:Number(document.getElementById('f-scorta').value)||0,
+    prezzo:Number(document.getElementById('f-prezzo').value)||0, fornitore:document.getElementById('f-fornitore').value.trim() };
+  const payload = toDb('magazzino', obj);
+  if(id){
+    const {data,error} = await supabase.from('magazzino').update(payload).eq('id',id).select().single();
+    if(error){ toast('Errore salvataggio','danger'); return; }
+    Object.assign(DB.magazzino.find(x=>x.id===id), fromDb('magazzino',data));
+  } else {
+    const {data,error} = await supabase.from('magazzino').insert(payload).select().single();
+    if(error){ toast('Errore salvataggio','danger'); return; }
+    DB.magazzino.unshift(fromDb('magazzino',data));
+  }
+  closeModal(); render(); toast('Articolo salvato');
+}
+async function deleteMagazzino(id){
+  if(!confirmDelete('Eliminare questo articolo?')) return;
+  const {error} = await supabase.from('magazzino').delete().eq('id',id);
+  if(error){ toast('Errore eliminazione','danger'); return; }
+  DB.magazzino = DB.magazzino.filter(x=>x.id!==id);
+  render(); toast('Articolo eliminato');
+}
+
+/* ============ MODAL ============ */
+function showModal(html){ document.getElementById('modal').innerHTML = html; document.getElementById('overlay').classList.add('show'); }
+function closeModal(){ document.getElementById('overlay').classList.remove('show'); editingVoci=[]; }
+document.getElementById('overlay').addEventListener('click', e=>{ if(e.target.id==='overlay') closeModal(); });
+document.addEventListener('keydown', e=>{ if(e.key==='Escape') closeModal(); });
+document.getElementById('login-password')?.addEventListener('keydown', e=>{ if(e.key==='Enter') doLogin(); });
+
+/* ============ INIT ============ */
+(async function init(){
+  if(!CONFIGURED){
+    document.getElementById('loading').innerHTML = `<div style="max-width:420px;text-align:center;padding:20px;">
+      <div style="font-weight:700;margin-bottom:10px;color:var(--text);">Configurazione mancante</div>
+      <div style="font-size:12.5px;line-height:1.6;">Apri il file index.html e inserisci SUPABASE_URL e SUPABASE_ANON_KEY.<br>Vedi le istruzioni fornite (SETUP.md).</div>
+    </div>`;
+    return;
+  }
+  document.addEventListener('keydown', e=>{ if(e.key==='Enter' && document.getElementById('login-screen').style.display!=='none') doLogin(); });
+  const {data:{session}} = await supabase.auth.getSession();
+  document.getElementById('loading').style.display='none';
+  if(session){
+    await enterApp(session);
+  } else {
+    document.getElementById('login-screen').style.display='flex';
+  }
+  supabase.auth.onAuthStateChange((event, session)=>{
+    if(event==='SIGNED_OUT'){
+      document.getElementById('app').style.display='none';
+      document.getElementById('login-screen').style.display='flex';
+    }
+  });
+})();
+
+if('serviceWorker' in navigator){
+  window.addEventListener('load', ()=>{ navigator.serviceWorker.register('sw.js').catch(()=>{}); });
+}
+</script>
+</body>
+</html>
