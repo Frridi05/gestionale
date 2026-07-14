@@ -221,13 +221,13 @@ tbody tr:hover{background:var(--panel-2);}
    5. In Authentication > Providers, disattiva "Allow new users to sign up"
    6. Crea gli account del team in Authentication > Users > Add user
    ============================================================ */
-const SUPABASE_URL = 'https://bawsvvpfrhnkpipqhivs.supabase.co/rest/v1/';
+const SUPABASE_URL = 'https://bawsvvpfrhnkpipqhivs.supabase.co';
 const SUPABASE_ANON_KEY = 'sb_publishable_EdARqXTuVa-5e9hfSJOQtg_KUyVtxEY';
 
 const CONFIGURED = !SUPABASE_URL.startsWith('INSERISCI') && !SUPABASE_ANON_KEY.startsWith('INSERISCI');
-supabase = null;
+  let supabaseClient = null;
 if(CONFIGURED){
-  supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+  supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 }
 
 /* ============ ICONS ============ */
