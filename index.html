@@ -213,13 +213,7 @@ tbody tr:hover{background:var(--panel-2);}
 
 <script>
 /* ============================================================
-   CONFIGURAZIONE SUPABASE — DA COMPILARE
-   1. Crea un progetto gratuito su https://supabase.com
-   2. Vai su Project Settings > API
-   3. Copia "Project URL" e "anon public key" qui sotto
-   4. Esegui lo script SQL fornito (schema.sql) nell'SQL Editor di Supabase
-   5. In Authentication > Providers, disattiva "Allow new users to sign up"
-   6. Crea gli account del team in Authentication > Users > Add user
+   CONFIGURAZIONE SUPABASE
    ============================================================ */
 const SUPABASE_URL = 'https://bawsvvpfrhnkpipqhivs.supabase.co';
 const SUPABASE_ANON_KEY = 'sb_publishable_EdARqXTuVa-5e9hfSJOQtg_KUyVtxEY';
@@ -227,7 +221,6 @@ const SUPABASE_ANON_KEY = 'sb_publishable_EdARqXTuVa-5e9hfSJOQtg_KUyVtxEY';
 const CONFIGURED = !SUPABASE_URL.startsWith('INSERISCI') && !SUPABASE_ANON_KEY.startsWith('INSERISCI');
 let supabaseClient = null;
 if(CONFIGURED){
-  // Utilizza l'istanza globale corretta dal CDN di Supabase
   supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 }
 
@@ -553,7 +546,6 @@ async function saveIntervento(id){
   const clienteId = document.getElementById('f-cliente').value;
   const dataVal = document.getElementById('f-data').value;
   if(!clienteId || !dataVal){ toast('Cliente e data sono obbligatori','danger'); return; }
-  
   const obj = {
     clienteId,
     data: dataVal,
@@ -563,7 +555,6 @@ async function saveIntervento(id){
     descrizione: document.getElementById('f-descrizione').value.trim(),
     note: document.getElementById('f-note').value.trim()
   };
-  
   const payload = toDb('interventi', obj);
   if(id){
     const {data,error} = await supabaseClient.from('interventi').update(payload).eq('id',id).select().single();
@@ -585,6 +576,335 @@ async function deleteIntervento(id){
   render(); toast('Intervento eliminato');
 }
 
+/* ============ PREVENTIVI ============ */
+let preventiviFilter = 'tutti';
+function renderPreventivi(){
+  let list = [...DB.preventivi].sort((a,b)=>(b.data||'').localeCompare(a.data||''));
+  if(preventiviFilter!=='tutti') list = list.filter(p=>p.stato===preventiviFilter);
+  return `
+    <div class="page-header"><div><div class="page-title">Preventivi</div><div class="page-sub">Offerte e quotazioni</div></div>
+      <button class="btn" onclick="openPreventivoForm()">${icon('plus')} Nuovo preventivo</button></div>
+    <div class="panel"><div class="filters">
+      ${['tutti','bozza','inviato','accettato','rifiutato'].map(s=>`<button class="btn ghost" style="${preventiviFilter===s?'border-color:var(--accent);color:#fff':''}" onclick="preventiviFilter='${s}';render()">${s==='tutti'?'Tutti':statoLabel(s)}</button>`).join('')}
+    </div><div class="panel-body">
+      ${list.length? `<table><thead><tr><th>Numero</th><th>Data</th><th>Cliente</th><th>Stato</th><th class="text-right">Totale</th><th></th></tr></thead>
+        <tbody>${list.map(p=>`<tr><td class="mono font-weight-600">${esc(p.numero)}</td><td>${fmtDate(p.data)}</td><td><strong>${esc(clienteName(p.clienteId))}</strong></td><td>${statoBadge(p.stato)}</td><td class="text-right mono">${eur(vociTotale(p.voci))}</td>
+          <td><div class="row-actions">
+            ${p.stato==='accettato'? `<button class="icon-btn" title="Converti in Fattura" onclick="convertiInFattura('${p.id}')">${icon('convert')}</button>` : ''}
+            <button class="icon-btn" onclick="openPreventivoForm('${p.id}')">${icon('edit')}</button>
+            <button class="icon-btn" onclick="deletePreventivo('${p.id}')">${icon('trash')}</button>
+          </div></td></tr>`).join('')}</tbody></table>`
+        : emptyState('preventivo','Crea la tua prima offerta commerciale')}
+    </div></div>`;
+}
+
+let vociFormList = [];
+function renderVociTable(voci){
+  vociFormList = voci ? JSON.parse(JSON.stringify(voci)) : [{desc:'',qta:1,prezzo:0}];
+  updateVociRender();
+}
+function updateVociRender(){
+  const container = document.getElementById('voci-container');
+  if(!container) return;
+  container.innerHTML = `
+    <table class="voci-table">
+      <thead><tr><th>Descrizione</th><th style="width:70px">Q.tà</th><th style="width:110px">Prezzo (€)</th><th style="width:40px"></th></tr></thead>
+      <tbody>
+        ${vociFormList.map((v,idx)=>`
+          <tr>
+            <td><input class="input small" value="${esc(v.desc)}" onchange="aggiornaVoce(${idx},'desc',this.value)" placeholder="Es. Sostituzione cuscinetti"></td>
+            <td><input class="input small text-right" type="number" min="1" value="${v.qta}" onchange="aggiornaVoce(${idx},'qta',this.value)"></td>
+            <td><input class="input small text-right" type="number" step="0.01" value="${v.prezzo}" onchange="aggiornaVoce(${idx},'prezzo',this.value)"></td>
+            <td><button class="icon-btn" type="button" onclick="rimuoviVoce(${idx})">${icon('x')}</button></td>
+          </tr>`).join('')}
+      </tbody>
+    </table>
+    <button class="btn ghost small" type="button" onclick="aggiungiVoce()">${icon('plus')} Aggiungi riga</button>
+    <div class="voci-total">Totale: <span id="voci-totale-label">${eur(vociTotale(vociFormList))}</span></div>
+  `;
+}
+function aggiornaVoce(idx,field,val){
+  if(field==='qta') vociFormList[idx].qta = Math.max(1,Number(val)||1);
+  else if(field==='prezzo') vociFormList[idx].prezzo = Math.max(0,Number(val)||0);
+  else vociFormList[idx].desc = val;
+  document.getElementById('voci-totale-label').textContent = eur(vociTotale(vociFormList));
+}
+function aggiungiVoce(){ vociFormList.push({desc:'',qta:1,prezzo:0}); updateVociRender(); }
+function rimuoviVoce(idx){ if(vociFormList.length>1) { vociFormList.splice(idx,1); updateVociRender(); } }
+
+function openPreventivoForm(id){
+  const p = id ? DB.preventivi.find(x=>x.id===id) : null;
+  const preNumero = p?.numero || nextNumero(DB.preventivi, 'PRE-', new Date().getFullYear());
+  showModal(`
+    <h2>${p?'Modifica preventivo':'Nuovo preventivo'}</h2>
+    <div class="modal-sub">Dettaglio e raggruppamento voci di spesa</div>
+    <div class="form-grid">
+      <div class="form-row"><label>Numero</label><input class="input mono" id="f-numero" value="${preNumero}" readonly></div>
+      <div class="form-row"><label>Data *</label><input class="input" type="date" id="f-data" value="${p?.data||todayISO()}"></div>
+    </div>
+    <div class="form-grid">
+      <div class="form-row"><label>Cliente *</label><select class="select" id="f-cliente">${clienteOptions(p?.clienteId)}</select></div>
+      <div class="form-row"><label>Scadenza</label><input class="input" type="date" id="f-scadenza" value="${p?.scadenza||''}"></div>
+    </div>
+    <div class="form-row"><label>Stato</label>
+      <select class="select" id="f-stato">
+        ${[['bozza','Bozza'],['inviato','Inviato'],['accettato','Accettato'],['rifiutato','Rifiutato']].map(([v,l])=>`<option value="${v}" ${p?.stato===v?'selected':''}>${l}</option>`).join('')}
+      </select>
+    </div>
+    <div class="form-row"><label>Articoli / Servizi</label><div id="voci-container"></div></div>
+    <div class="form-row"><label>Note</label><textarea class="input" id="f-note" rows="2">${esc(p?.note)||''}</textarea></div>
+    <div class="modal-actions"><button class="btn secondary" onclick="closeModal()">Annulla</button>
+      <button class="btn" onclick="savePreventivo('${id||''}')">${icon('check')} Salva</button></div>
+  `);
+  renderVociTable(p?.voci);
+}
+async function savePreventivo(id){
+  const clienteId = document.getElementById('f-cliente').value;
+  const dataVal = document.getElementById('f-data').value;
+  if(!clienteId || !dataVal){ toast('Cliente e data sono obbligatori','danger'); return; }
+  const obj = {
+    numero: document.getElementById('f-numero').value,
+    clienteId, data: dataVal, voci: vociFormList,
+    stato: document.getElementById('f-stato').value,
+    scadenza: document.getElementById('f-scadenza').value || null,
+    note: document.getElementById('f-note').value.trim()
+  };
+  const payload = toDb('preventivi', obj);
+  if(id){
+    const {data,error} = await supabaseClient.from('preventivi').update(payload).eq('id',id).select().single();
+    if(error){ toast('Errore salvataggio','danger'); return; }
+    Object.assign(DB.preventivi.find(x=>x.id===id), fromDb('preventivi',data));
+  } else {
+    const {data,error} = await supabaseClient.from('preventivi').insert(payload).select().single();
+    if(error){ toast('Errore salvataggio','danger'); return; }
+    DB.preventivi.unshift(fromDb('preventivi',data));
+  }
+  closeModal(); render(); toast('Preventivo salvato');
+}
+async function deletePreventivo(id){
+  if(!confirmDelete('Eliminare questo preventivo?')) return;
+  const {error} = await supabaseClient.from('preventivi').delete().eq('id',id);
+  if(error){ toast('Errore eliminazione','danger'); return; }
+  DB.preventivi = DB.preventivi.filter(x=>x.id!==id);
+  render(); toast('Preventivo eliminato');
+}
+async function convertiInFattura(prevId){
+  const prev = DB.preventivi.find(x=>x.id===prevId);
+  if(!prev) return;
+  const fatNumero = nextNumero(DB.fatture, 'FAT-', new Date().getFullYear());
+  const fatObj = {
+    numero: fatNumero, clienteId: prev.clienteId, data: todayISO(),
+    voci: prev.voci, stato: 'da_pagare', scadenza: new Date(Date.now()+30*86400000).toISOString().slice(0,10),
+    dataPagamento: null, note: `Generata da preventivo ${prev.numero}.`
+  };
+  const payload = toDb('fatture', fatObj);
+  const {data,error} = await supabaseClient.from('fatture').insert(payload).select().single();
+  if(error){ toast('Errore conversione','danger'); return; }
+  DB.fatture.unshift(fromDb('fatture',data));
+  currentTab = 'fatture';
+  renderNav(); render(); toast('Preventivo convertito in Fattura!');
+}
+
+/* ============ FATTURE ============ */
+let fattureFilter = 'tutti';
+function renderFatture(){
+  let list = [...DB.fatture].sort((a,b)=>(b.data||'').localeCompare(a.data||''));
+  if(fattureFilter!=='tutti') list = list.filter(f=>f.stato===fattureFilter);
+  return `
+    <div class="page-header"><div><div class="page-title">Fatture</div><div class="page-sub">Ciclo attivo e pagamenti</div></div>
+      <button class="btn" onclick="openFatturaForm()">${icon('plus')} Nuova fattura</button></div>
+    <div class="panel"><div class="filters">
+      ${['tutti','da_pagare','pagata'].map(s=>`<button class="btn ghost" style="${fattureFilter===s?'border-color:var(--accent);color:#fff':''}" onclick="fattureFilter='${s}';render()">${s==='tutti'?'Tutti':statoLabel(s)}</button>`).join('')}
+    </div><div class="panel-body">
+      ${list.length? `<table><thead><tr><th>Numero</th><th>Data</th><th>Cliente</th><th>Stato</th><th class="text-right">Totale</th><th></th></tr></thead>
+        <tbody>${list.map(f=>`<tr><td class="mono font-weight-600">${esc(f.numero)}</td><td>${fmtDate(f.data)}</td><td><strong>${esc(clienteName(f.clienteId))}</strong></td><td>${statoBadge(f.stato)}</td><td class="text-right mono">${eur(vociTotale(f.voci))}</td>
+          <td><div class="row-actions"><button class="icon-btn" onclick="openFatturaForm('${f.id}')">${icon('edit')}</button><button class="icon-btn" onclick="deleteFattura('${f.id}')">${icon('trash')}</button></div></td></tr>`).join('')}</tbody></table>`
+        : emptyState('fattura','Emetti la tua prima fattura fiscale')}
+    </div></div>`;
+}
+function openFatturaForm(id){
+  const f = id ? DB.fatture.find(x=>x.id===id) : null;
+  const fatNumero = f?.numero || nextNumero(DB.fatture, 'FAT-', new Date().getFullYear());
+  showModal(`
+    <h2>${f?'Modifica fattura':'Nuova fattura'}</h2>
+    <div class="modal-sub">Dettaglio e incassi</div>
+    <div class="form-grid">
+      <div class="form-row"><label>Numero</label><input class="input mono" id="f-numero" value="${fatNumero}" readonly></div>
+      <div class="form-row"><label>Data *</label><input class="input" type="date" id="f-data" value="${f?.data||todayISO()}"></div>
+    </div>
+    <div class="form-grid">
+      <div class="form-row"><label>Cliente *</label><select class="select" id="f-cliente">${clienteOptions(f?.clienteId)}</select></div>
+      <div class="form-row"><label>Scadenza</label><input class="input" type="date" id="f-scadenza" value="${f?.scadenza||''}"></div>
+    </div>
+    <div class="form-grid">
+      <div class="form-row"><label>Stato</label>
+        <select class="select" id="f-stato">
+          ${[['da_pagare','Da incassare'],['pagata','Pagata']].map(([v,l])=>`<option value="${v}" ${f?.stato===v?'selected':''}>${l}</option>`).join('')}
+        </select>
+      </div>
+      <div class="form-row"><label>Data Pagamento</label><input class="input" type="date" id="f-data-pagamento" value="${f?.dataPagamento||''}"></div>
+    </div>
+    <div class="form-row"><label>Voci fattura</label><div id="voci-container"></div></div>
+    <div class="form-row"><label>Note</label><textarea class="input" id="f-note" rows="2">${esc(f?.note)||''}</textarea></div>
+    <div class="modal-actions"><button class="btn secondary" onclick="closeModal()">Annulla</button>
+      <button class="btn" onclick="saveFattura('${id||''}')">${icon('check')} Salva</button></div>
+  `);
+  renderVociTable(f?.voci);
+}
+async function saveFattura(id){
+  const clienteId = document.getElementById('f-cliente').value;
+  const dataVal = document.getElementById('f-data').value;
+  if(!clienteId || !dataVal){ toast('Cliente e data sono obbligatori','danger'); return; }
+  const obj = {
+    numero: document.getElementById('f-numero').value,
+    clienteId, data: dataVal, voci: vociFormList,
+    stato: document.getElementById('f-stato').value,
+    scadenza: document.getElementById('f-scadenza').value || null,
+    dataPagamento: document.getElementById('f-data-pagamento').value || null,
+    note: document.getElementById('f-note').value.trim()
+  };
+  const payload = toDb('fatture', obj);
+  if(id){
+    const {data,error} = await supabaseClient.from('fatture').update(payload).eq('id',id).select().single();
+    if(error){ toast('Errore salvataggio','danger'); return; }
+    Object.assign(DB.fatture.find(x=>x.id===id), fromDb('fatture',data));
+  } else {
+    const {data,error} = await supabaseClient.from('fatture').insert(payload).select().single();
+    if(error){ toast('Errore salvataggio','danger'); return; }
+    DB.fatture.unshift(fromDb('fatture',data));
+  }
+  closeModal(); render(); toast('Fattura salvata');
+}
+async function deleteFattura(id){
+  if(!confirmDelete('Eliminare questa fattura?')) return;
+  const {error} = await supabaseClient.from('fatture').delete().eq('id',id);
+  if(error){ toast('Errore eliminazione','danger'); return; }
+  DB.fatture = DB.fatture.filter(x=>x.id!==id);
+  render(); toast('Fattura eliminata');
+}
+
+/* ============ SPESE ============ */
+function renderSpese(){
+  const list = [...DB.spese].sort((a,b)=>(b.data||'').localeCompare(a.data||''));
+  return `
+    <div class="page-header"><div><div class="page-title">Spese</div><div class="page-sub">Registrazione uscite e costi aziendali</div></div>
+      <button class="btn" onclick="openSpesaForm()">${icon('plus')} Nuova spesa</button></div>
+    <div class="panel"><div class="panel-body">
+      ${list.length? `<table><thead><tr><th>Data</th><th>Categoria</th><th>Descrizione</th><th class="text-right">Importo</th><th></th></tr></thead>
+        <tbody>${list.map(s=>`<tr><td>${fmtDate(s.data)}</td><td><span class="badge neutral">${esc(s.categoria)}</span></td><td class="text-dim">${esc(s.descrizione)||'—'}</td><td class="text-right mono" style="color:var(--danger)">-${eur(s.importo)}</td>
+          <td><div class="row-actions"><button class="icon-btn" onclick="openSpesaForm('${s.id}')">${icon('edit')}</button><button class="icon-btn" onclick="deleteSpesa('${s.id}')">${icon('trash')}</button></div></td></tr>`).join('')}</tbody></table>`
+        : emptyState('spesa','Inserisci la prima spesa aziendale')}
+    </div></div>`;
+}
+function openSpesaForm(id){
+  const s = id ? DB.spese.find(x=>x.id===id) : null;
+  showModal(`
+    <h2>${s?'Modifica spesa':'Nuova spesa'}</h2>
+    <div class="modal-sub">Uscite e forniture</div>
+    <div class="form-grid">
+      <div class="form-row"><label>Data *</label><input class="input" type="date" id="f-data" value="${s?.data||todayISO()}"></div>
+      <div class="form-row"><label>Categoria *</label>
+        <select class="select" id="f-categoria">
+          ${['Materiale/Ricambi','Carburante','Utenze','Attrezzatura','Servizi','Altro'].map(cat=>`<option ${s?.categoria===cat?'selected':''}>${cat}</option>`).join('')}
+        </select>
+      </div>
+    </div>
+    <div class="form-row"><label>Importo spesa (€) *</label><input class="input" type="number" step="0.01" id="f-importo" value="${s?.importo||''}"></div>
+    <div class="form-row"><label>Descrizione / Fornitore</label><textarea class="input" id="f-descrizione" rows="2">${esc(s?.descrizione)||''}</textarea></div>
+    <div class="modal-actions"><button class="btn secondary" onclick="closeModal()">Annulla</button>
+      <button class="btn" onclick="saveSpesa('${id||''}')">${icon('check')} Salva</button></div>
+  `);
+}
+async function saveSpesa(id){
+  const dataVal = document.getElementById('f-data').value;
+  const importo = Number(document.getElementById('f-importo').value);
+  if(!dataVal || !importo){ toast('Data e importo sono obbligatori','danger'); return; }
+  const obj = { data: dataVal, categoria: document.getElementById('f-categoria').value, descrizione: document.getElementById('f-descrizione').value.trim(), importo };
+  const payload = toDb('spese', obj);
+  if(id){
+    const {data,error} = await supabaseClient.from('spese').update(payload).eq('id',id).select().single();
+    if(error){ toast('Errore salvataggio','danger'); return; }
+    Object.assign(DB.spese.find(x=>x.id===id), fromDb('spese',data));
+  } else {
+    const {data,error} = await supabaseClient.from('spese').insert(payload).select().single();
+    if(error){ toast('Errore salvataggio','danger'); return; }
+    DB.spese.unshift(fromDb('spese',data));
+  }
+  closeModal(); render(); toast('Spesa registrata');
+}
+async function deleteSpesa(id){
+  if(!confirmDelete('Eliminare questa spesa?')) return;
+  const {error} = await supabaseClient.from('spese').delete().eq('id',id);
+  if(error){ toast('Errore eliminazione','danger'); return; }
+  DB.spese = DB.spese.filter(x=>x.id!==id);
+  render(); toast('Spesa eliminata');
+}
+
+/* ============ MAGAZZINO ============ */
+function renderMagazzino(){
+  const list = DB.magazzino;
+  return `
+    <div class="page-header"><div><div class="page-title">Magazzino</div><div class="page-sub">Scorte e materiali in dotazione</div></div>
+      <button class="btn" onclick="openArticoloForm()">${icon('plus')} Nuovo articolo</button></div>
+    <div class="panel"><div class="panel-body">
+      ${list.length? `<table><thead><tr><th>Articolo</th><th>Fornitore</th><th class="text-right">Q.tà disp.</th><th class="text-right">Soglia scorta</th><th class="text-right">Prezzo Unit.</th><th></th></tr></thead>
+        <tbody>${list.map(a=>{
+          const sottoscorta = Number(a.quantita) <= Number(a.scorta);
+          return `<tr>
+            <td><strong>${esc(a.nome)}</strong></td>
+            <td class="text-dim">${esc(a.fornitore)||'—'}</td>
+            <td class="text-right mono ${sottoscorta?'text-danger':''}" style="font-weight:700">${a.quantita} ${sottoscorta?'<span style="font-size:10px;color:var(--warn)">⚠️ Sotto scorta</span>':''}</td>
+            <td class="text-right text-dim mono">${a.scorta}</td>
+            <td class="text-right mono">${eur(a.prezzo)}</td>
+            <td><div class="row-actions"><button class="icon-btn" onclick="openArticoloForm('${a.id}')">${icon('edit')}</button><button class="icon-btn" onclick="deleteArticolo('${a.id}')">${icon('trash')}</button></div></td>
+          </tr>`}).join('')}</tbody></table>`
+        : emptyState('articolo','Inserisci materiali o parti di ricambio in magazzino')}
+    </div></div>`;
+}
+function openArticoloForm(id){
+  const a = id ? DB.magazzino.find(x=>x.id===id) : null;
+  showModal(`
+    <h2>${a?'Modifica articolo':'Nuovo articolo'}</h2>
+    <div class="modal-sub">Gestione scorte e unità</div>
+    <div class="form-row"><label>Nome articolo *</label><input class="input" id="f-nome" value="${esc(a?.nome)||''}"></div>
+    <div class="form-grid">
+      <div class="form-row"><label>Quantità disponibile *</label><input class="input" type="number" id="f-quantita" value="${a?.quantita??0}"></div>
+      <div class="form-row"><label>Scorta minima (alert) *</label><input class="input" type="number" id="f-scorta" value="${a?.scorta??5}"></div>
+    </div>
+    <div class="form-grid">
+      <div class="form-row"><label>Prezzo unitario (€)</label><input class="input" type="number" step="0.01" id="f-prezzo" value="${a?.prezzo||''}"></div>
+      <div class="form-row"><label>Fornitore</label><input class="input" id="f-fornitore" value="${esc(a?.fornitore)||''}"></div>
+    </div>
+    <div class="modal-actions"><button class="btn secondary" onclick="closeModal()">Annulla</button>
+      <button class="btn" onclick="saveArticolo('${id||''}')">${icon('check')} Salva</button></div>
+  `);
+}
+async function saveArticolo(id){
+  const nome = document.getElementById('f-nome').value.trim();
+  const quantita = Number(document.getElementById('f-quantita').value);
+  const scorta = Number(document.getElementById('f-scorta').value);
+  if(!nome){ toast('Il nome è obbligatorio','danger'); return; }
+  const obj = { nome, quantita, scorta, prezzo: Number(document.getElementById('f-prezzo').value)||0, fornitore: document.getElementById('f-fornitore').value.trim() };
+  const payload = toDb('magazzino', obj);
+  if(id){
+    const {data,error} = await supabaseClient.from('magazzino').update(payload).eq('id',id).select().single();
+    if(error){ toast('Errore salvataggio','danger'); return; }
+    Object.assign(DB.magazzino.find(x=>x.id===id), fromDb('magazzino',data));
+  } else {
+    const {data,error} = await supabaseClient.from('magazzino').insert(payload).select().single();
+    if(error){ toast('Errore salvataggio','danger'); return; }
+    DB.magazzino.unshift(fromDb('magazzino',data));
+  }
+  closeModal(); render(); toast('Articolo salvato');
+}
+async function deleteArticolo(id){
+  if(!confirmDelete('Eliminare questo articolo?')) return;
+  const {error} = await supabaseClient.from('magazzino').delete().eq('id',id);
+  if(error){ toast('Errore eliminazione','danger'); return; }
+  DB.magazzino = DB.magazzino.filter(x=>x.id!==id);
+  render(); toast('Articolo eliminato');
+}
+
 /* ============ UTILS INTERFACCIAMENTO MODALE ============ */
 function showModal(htmlContent){
   document.getElementById('modal').innerHTML = htmlContent;
@@ -597,7 +917,6 @@ function closeModal(){
 
 // Inizializzazione automatica al caricamento dello script
 (async function init(){
-  // Se Supabase è configurato correttamente, prova a verificare lo stato di autenticazione
   if(CONFIGURED && supabaseClient){
     try {
       const { data: { session } } = await supabaseClient.auth.getSession();
@@ -613,11 +932,10 @@ function closeModal(){
       document.getElementById('login-screen').style.display='flex';
     }
   } else {
-    // Se non configurato, mostra la schermata iniziale con un avviso
     document.getElementById('loading').innerHTML = `
       <div class="config-warning" style="max-width:400px; text-align:center;">
         <strong>Configurazione mancante!</strong><br>
-        Compila l'URL e la Anon Key di Supabase alle righe 224 e 225 all'interno del file HTML per iniziare.
+        Compila l'URL e la Anon Key di Supabase nel file HTML per iniziare.
       </div>`;
   }
 })();
