@@ -225,7 +225,7 @@ const SUPABASE_URL = 'https://bawsvvpfrhnkpipqhivs.supabase.co/rest/v1/';
 const SUPABASE_ANON_KEY = 'sb_publishable_EdARqXTuVa-5e9hfSJOQtg_KUyVtxEY';
 
 const CONFIGURED = !SUPABASE_URL.startsWith('INSERISCI') && !SUPABASE_ANON_KEY.startsWith('INSERISCI');
-let supabase = null;
+supabase = null;
 if(CONFIGURED){
   supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 }
