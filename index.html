@@ -213,17 +213,25 @@ tbody tr:hover{background:var(--panel-2);}
 <div id="toast"><span class="dot"></span><span id="toast-msg"></span></div>
 
 <script>
-  
+/* ============================================================
+   CONFIGURAZIONE SUPABASE — DA COMPILARE
+   1. Crea un progetto gratuito su https://supabase.com
+   2. Vai su Project Settings > API
+   3. Copia "Project URL" e "anon public key" qui sotto
+   4. Esegui lo script SQL fornito (schema.sql) nell'SQL Editor di Supabase
+   5. In Authentication > Providers, disattiva "Allow new users to sign up"
+   6. Crea gli account del team in Authentication > Users > Add user
+   ============================================================ */
 const SUPABASE_URL = 'https://bawsvvpfrhnkpipqhivs.supabase.co';
 const SUPABASE_ANON_KEY = 'sb_publishable_EdARqXTuVa-5e9hfSJOQtg_KUyVtxEY';
 
 const CONFIGURED = !SUPABASE_URL.startsWith('INSERISCI') && !SUPABASE_ANON_KEY.startsWith('INSERISCI');
-let supabase = null;
+let sb = null;
 let INIT_ERROR = null;
 if(CONFIGURED){
   try{
     if(!window.supabase) throw new Error('Libreria Supabase non caricata (controlla la connessione internet o se il dominio cdn.jsdelivr.net è bloccato).');
-    supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+    sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
   }catch(e){
     INIT_ERROR = e.message || 'Errore di inizializzazione.';
   }
@@ -267,18 +275,18 @@ function toDb(table,obj){ const o={}; FIELD_MAPS[table].forEach(([db,js])=>{ o[d
 
 async function loadAll(){
   for(const k of KEYS){
-    const {data,error} = await supabase.from(k).select('*').order('created_at',{ascending:false});
+    const {data,error} = await sb.from(k).select('*').order('created_at',{ascending:false});
     DB[k] = (error || !data) ? [] : data.map(r=>fromDb(k,r));
     if(error) console.error(k, error.message);
   }
 }
 
 function subscribeRealtime(){
-  realtimeChannels.forEach(ch=>supabase.removeChannel(ch));
+  realtimeChannels.forEach(ch=>sb.removeChannel(ch));
   realtimeChannels = KEYS.map(k=>
-    supabase.channel('sync:'+k)
+    sb.channel('sync:'+k)
       .on('postgres_changes', {event:'*', schema:'public', table:k}, async ()=>{
-        const {data,error} = await supabase.from(k).select('*').order('created_at',{ascending:false});
+        const {data,error} = await sb.from(k).select('*').order('created_at',{ascending:false});
         if(!error && data){ DB[k] = data.map(r=>fromDb(k,r)); render(); }
       })
       .subscribe()
@@ -316,7 +324,7 @@ async function doLogin(){
   if(!email || !password){ errBox.textContent='Inserisci email e password.'; errBox.classList.add('show'); return; }
   const btn = document.getElementById('login-btn');
   btn.disabled = true; btn.textContent = 'Accesso in corso…';
-  const {data,error} = await supabase.auth.signInWithPassword({email,password});
+  const {data,error} = await sb.auth.signInWithPassword({email,password});
   btn.disabled = false; btn.textContent = 'Accedi';
   if(error){
     errBox.textContent = 'Credenziali non valide. Contatta il titolare per un accesso.';
@@ -326,8 +334,8 @@ async function doLogin(){
   await enterApp(data.session);
 }
 async function doLogout(){
-  await supabase.auth.signOut();
-  realtimeChannels.forEach(ch=>supabase.removeChannel(ch));
+  await sb.auth.signOut();
+  realtimeChannels.forEach(ch=>sb.removeChannel(ch));
   realtimeChannels = [];
   document.getElementById('app').style.display='none';
   document.getElementById('login-screen').style.display='flex';
@@ -467,11 +475,11 @@ async function saveCliente(id){
     email:document.getElementById('f-email').value.trim(), note:document.getElementById('f-note').value.trim() };
   const payload = toDb('clienti', obj);
   if(id){
-    const {data,error} = await supabase.from('clienti').update(payload).eq('id',id).select().single();
+    const {data,error} = await sb.from('clienti').update(payload).eq('id',id).select().single();
     if(error){ toast('Errore salvataggio','danger'); return; }
     Object.assign(DB.clienti.find(x=>x.id===id), fromDb('clienti',data));
   } else {
-    const {data,error} = await supabase.from('clienti').insert(payload).select().single();
+    const {data,error} = await sb.from('clienti').insert(payload).select().single();
     if(error){ toast('Errore salvataggio','danger'); return; }
     DB.clienti.unshift(fromDb('clienti',data));
   }
@@ -479,7 +487,7 @@ async function saveCliente(id){
 }
 async function deleteCliente(id){
   if(!confirmDelete('Eliminare questo cliente?')) return;
-  const {error} = await supabase.from('clienti').delete().eq('id',id);
+  const {error} = await sb.from('clienti').delete().eq('id',id);
   if(error){ toast('Errore eliminazione','danger'); return; }
   DB.clienti = DB.clienti.filter(x=>x.id!==id);
   render(); toast('Cliente eliminato');
@@ -525,11 +533,11 @@ async function saveIntervento(id){
     costo:Number(document.getElementById('f-costo').value)||0, note:document.getElementById('f-note').value.trim() };
   const payload = toDb('interventi', obj);
   if(id){
-    const {data,error} = await supabase.from('interventi').update(payload).eq('id',id).select().single();
+    const {data,error} = await sb.from('interventi').update(payload).eq('id',id).select().single();
     if(error){ toast('Errore salvataggio','danger'); return; }
     Object.assign(DB.interventi.find(x=>x.id===id), fromDb('interventi',data));
   } else {
-    const {data,error} = await supabase.from('interventi').insert(payload).select().single();
+    const {data,error} = await sb.from('interventi').insert(payload).select().single();
     if(error){ toast('Errore salvataggio','danger'); return; }
     DB.interventi.unshift(fromDb('interventi',data));
   }
@@ -537,7 +545,7 @@ async function saveIntervento(id){
 }
 async function deleteIntervento(id){
   if(!confirmDelete('Eliminare questo intervento?')) return;
-  const {error} = await supabase.from('interventi').delete().eq('id',id);
+  const {error} = await sb.from('interventi').delete().eq('id',id);
   if(error){ toast('Errore eliminazione','danger'); return; }
   DB.interventi = DB.interventi.filter(x=>x.id!==id);
   render(); toast('Intervento eliminato');
@@ -607,14 +615,14 @@ async function savePreventivo(id){
     scadenza:document.getElementById('f-scadenza').value || null, note:document.getElementById('f-note').value.trim() };
   if(id){
     const payload = toDb('preventivi', obj);
-    const {data,error} = await supabase.from('preventivi').update(payload).eq('id',id).select().single();
+    const {data,error} = await sb.from('preventivi').update(payload).eq('id',id).select().single();
     if(error){ toast('Errore salvataggio','danger'); return; }
     Object.assign(DB.preventivi.find(x=>x.id===id), fromDb('preventivi',data));
   } else {
     const year = new Date(obj.data||todayISO()).getFullYear();
     obj.numero = nextNumero(DB.preventivi,'P',''+year);
     const payload = toDb('preventivi', obj);
-    const {data,error} = await supabase.from('preventivi').insert(payload).select().single();
+    const {data,error} = await sb.from('preventivi').insert(payload).select().single();
     if(error){ toast('Errore salvataggio','danger'); return; }
     DB.preventivi.unshift(fromDb('preventivi',data));
   }
@@ -622,7 +630,7 @@ async function savePreventivo(id){
 }
 async function deletePreventivo(id){
   if(!confirmDelete('Eliminare questo preventivo?')) return;
-  const {error} = await supabase.from('preventivi').delete().eq('id',id);
+  const {error} = await sb.from('preventivi').delete().eq('id',id);
   if(error){ toast('Errore eliminazione','danger'); return; }
   DB.preventivi = DB.preventivi.filter(x=>x.id!==id);
   render(); toast('Preventivo eliminato');
@@ -634,7 +642,7 @@ async function convertPreventivo(id){
   const obj = { numero: nextNumero(DB.fatture,'',''+year), clienteId:p.clienteId, data:todayISO(),
     voci:JSON.parse(JSON.stringify(p.voci)), stato:'da_pagare', scadenza:null, dataPagamento:null, note:'Da preventivo '+p.numero };
   const payload = toDb('fatture', obj);
-  const {data,error} = await supabase.from('fatture').insert(payload).select().single();
+  const {data,error} = await sb.from('fatture').insert(payload).select().single();
   if(error){ toast('Errore creazione fattura','danger'); return; }
   DB.fatture.unshift(fromDb('fatture',data));
   toast('Fattura '+obj.numero+' creata dal preventivo');
@@ -680,7 +688,7 @@ async function saveFattura(id){
     scadenza:document.getElementById('f-scadenza').value || null, note:document.getElementById('f-note').value.trim() };
   if(id){
     const payload = toDb('fatture', obj);
-    const {data,error} = await supabase.from('fatture').update(payload).eq('id',id).select().single();
+    const {data,error} = await sb.from('fatture').update(payload).eq('id',id).select().single();
     if(error){ toast('Errore salvataggio','danger'); return; }
     Object.assign(DB.fatture.find(x=>x.id===id), fromDb('fatture',data));
   } else {
@@ -688,7 +696,7 @@ async function saveFattura(id){
     obj.numero = nextNumero(DB.fatture,'',''+year);
     obj.dataPagamento = null;
     const payload = toDb('fatture', obj);
-    const {data,error} = await supabase.from('fatture').insert(payload).select().single();
+    const {data,error} = await sb.from('fatture').insert(payload).select().single();
     if(error){ toast('Errore salvataggio','danger'); return; }
     DB.fatture.unshift(fromDb('fatture',data));
   }
@@ -696,14 +704,14 @@ async function saveFattura(id){
 }
 async function markPagata(id){
   const payload = { stato:'pagata', data_pagamento: todayISO() };
-  const {data,error} = await supabase.from('fatture').update(payload).eq('id',id).select().single();
+  const {data,error} = await sb.from('fatture').update(payload).eq('id',id).select().single();
   if(error){ toast('Errore aggiornamento','danger'); return; }
   Object.assign(DB.fatture.find(x=>x.id===id), fromDb('fatture',data));
   render(); toast('Fattura segnata come pagata');
 }
 async function deleteFattura(id){
   if(!confirmDelete('Eliminare questa fattura?')) return;
-  const {error} = await supabase.from('fatture').delete().eq('id',id);
+  const {error} = await sb.from('fatture').delete().eq('id',id);
   if(error){ toast('Errore eliminazione','danger'); return; }
   DB.fatture = DB.fatture.filter(x=>x.id!==id);
   render(); toast('Fattura eliminata');
@@ -741,11 +749,11 @@ async function saveSpesa(id){
   const obj = { data:document.getElementById('f-data').value, importo, categoria:document.getElementById('f-categoria').value, descrizione:document.getElementById('f-descrizione').value.trim() };
   const payload = toDb('spese', obj);
   if(id){
-    const {data,error} = await supabase.from('spese').update(payload).eq('id',id).select().single();
+    const {data,error} = await sb.from('spese').update(payload).eq('id',id).select().single();
     if(error){ toast('Errore salvataggio','danger'); return; }
     Object.assign(DB.spese.find(x=>x.id===id), fromDb('spese',data));
   } else {
-    const {data,error} = await supabase.from('spese').insert(payload).select().single();
+    const {data,error} = await sb.from('spese').insert(payload).select().single();
     if(error){ toast('Errore salvataggio','danger'); return; }
     DB.spese.unshift(fromDb('spese',data));
   }
@@ -753,7 +761,7 @@ async function saveSpesa(id){
 }
 async function deleteSpesa(id){
   if(!confirmDelete('Eliminare questa spesa?')) return;
-  const {error} = await supabase.from('spese').delete().eq('id',id);
+  const {error} = await sb.from('spese').delete().eq('id',id);
   if(error){ toast('Errore eliminazione','danger'); return; }
   DB.spese = DB.spese.filter(x=>x.id!==id);
   render(); toast('Spesa eliminata');
@@ -792,11 +800,11 @@ async function saveMagazzino(id){
     prezzo:Number(document.getElementById('f-prezzo').value)||0, fornitore:document.getElementById('f-fornitore').value.trim() };
   const payload = toDb('magazzino', obj);
   if(id){
-    const {data,error} = await supabase.from('magazzino').update(payload).eq('id',id).select().single();
+    const {data,error} = await sb.from('magazzino').update(payload).eq('id',id).select().single();
     if(error){ toast('Errore salvataggio','danger'); return; }
     Object.assign(DB.magazzino.find(x=>x.id===id), fromDb('magazzino',data));
   } else {
-    const {data,error} = await supabase.from('magazzino').insert(payload).select().single();
+    const {data,error} = await sb.from('magazzino').insert(payload).select().single();
     if(error){ toast('Errore salvataggio','danger'); return; }
     DB.magazzino.unshift(fromDb('magazzino',data));
   }
@@ -804,7 +812,7 @@ async function saveMagazzino(id){
 }
 async function deleteMagazzino(id){
   if(!confirmDelete('Eliminare questo articolo?')) return;
-  const {error} = await supabase.from('magazzino').delete().eq('id',id);
+  const {error} = await sb.from('magazzino').delete().eq('id',id);
   if(error){ toast('Errore eliminazione','danger'); return; }
   DB.magazzino = DB.magazzino.filter(x=>x.id!==id);
   render(); toast('Articolo eliminato');
@@ -832,7 +840,7 @@ function showInitError(title, detail){
     showInitError('Configurazione mancante', 'Apri il file index.html e inserisci SUPABASE_URL e SUPABASE_ANON_KEY.<br>Vedi le istruzioni in SETUP.md.');
     return;
   }
-  if(INIT_ERROR || !supabase){
+  if(INIT_ERROR || !sb){
     showInitError('Impossibile avviare l\'app', esc(INIT_ERROR || 'Errore sconosciuto durante l\'inizializzazione.') + '<br>Controlla la connessione internet e ricarica la pagina.');
     return;
   }
@@ -845,7 +853,7 @@ function showInitError(title, detail){
   document.addEventListener('keydown', e=>{ if(e.key==='Enter' && document.getElementById('login-screen').style.display!=='none') doLogin(); });
 
   try{
-    const {data, error} = await supabase.auth.getSession();
+    const {data, error} = await sb.auth.getSession();
     clearTimeout(safetyTimer);
     if(error) throw error;
     document.getElementById('loading').style.display='none';
@@ -854,7 +862,7 @@ function showInitError(title, detail){
     } else {
       document.getElementById('login-screen').style.display='flex';
     }
-    supabase.auth.onAuthStateChange((event, session)=>{
+    sb.auth.onAuthStateChange((event, session)=>{
       if(event==='SIGNED_OUT'){
         document.getElementById('app').style.display='none';
         document.getElementById('login-screen').style.display='flex';
