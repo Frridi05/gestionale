@@ -213,15 +213,27 @@ tbody tr:hover{background:var(--panel-2);}
 
 <script>
 /* ============================================================
-   CONFIGURAZIONE SUPABASE
+   CONFIGURAZIONE SUPABASE — DA COMPILARE
+   1. Crea un progetto gratuito su https://supabase.com
+   2. Vai su Project Settings > API
+   3. Copia "Project URL" e "anon public key" qui sotto
+   4. Esegui lo script SQL fornito (schema.sql) nell'SQL Editor di Supabase
+   5. In Authentication > Providers, disattiva "Allow new users to sign up"
+   6. Crea gli account del team in Authentication > Users > Add user
    ============================================================ */
 const SUPABASE_URL = 'https://bawsvvpfrhnkpipqhivs.supabase.co';
 const SUPABASE_ANON_KEY = 'sb_publishable_EdARqXTuVa-5e9hfSJOQtg_KUyVtxEY';
 
 const CONFIGURED = !SUPABASE_URL.startsWith('INSERISCI') && !SUPABASE_ANON_KEY.startsWith('INSERISCI');
-let supabaseClient = null;
+let supabase = null;
+let INIT_ERROR = null;
 if(CONFIGURED){
-  supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+  try{
+    if(!window.supabase) throw new Error('Libreria Supabase non caricata (controlla la connessione internet o se il dominio cdn.jsdelivr.net è bloccato).');
+    supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+  }catch(e){
+    INIT_ERROR = e.message || 'Errore di inizializzazione.';
+  }
 }
 
 /* ============ ICONS ============ */
@@ -253,27 +265,27 @@ const FIELD_MAPS = {
   clienti: [['nome','nome'],['citta','citta'],['telefono','telefono'],['indirizzo','indirizzo'],['referente','referente'],['email','email'],['note','note']],
   interventi: [['cliente_id','clienteId'],['data','data'],['tipo','tipo'],['stato','stato'],['descrizione','descrizione'],['costo','costo'],['note','note']],
   preventivi: [['numero','numero'],['cliente_id','clienteId'],['data','data'],['voci','voci'],['stato','stato'],['scadenza','scadenza'],['note','note']],
-  fatture: [['numero','numero'],['cliente_id','clienteId'],['data','data'],['voci','voci'],['stato','stato'],['scadenza','scadenza'],['data_pagamento','dataPagamento'],['note','note']],
+  fatture: [['numero','numero'],['cliente_id','clienteId'],['data','data'],['voci','voci'],['stato','stato'],['scadenza','scadenza'],['data_pagamento','dataPagamento'],['modalita_pagamento','modalitaPagamento'],['note','note']],
   spese: [['data','data'],['categoria','categoria'],['descrizione','descrizione'],['importo','importo']],
   magazzino: [['nome','nome'],['quantita','quantita'],['scorta','scorta'],['prezzo','prezzo'],['fornitore','fornitore']],
 };
 function fromDb(table,row){ const o={id:row.id}; FIELD_MAPS[table].forEach(([db,js])=>{ o[js]=row[db]; }); return o; }
 function toDb(table,obj){ const o={}; FIELD_MAPS[table].forEach(([db,js])=>{ o[db]=obj[js]; }); return o; }
 
-async function loadAll() {
+async function loadAll(){
   for(const k of KEYS){
-    const {data,error} = await supabaseClient.from(k).select('*').order('created_at',{ascending:false});
+    const {data,error} = await supabase.from(k).select('*').order('created_at',{ascending:false});
     DB[k] = (error || !data) ? [] : data.map(r=>fromDb(k,r));
     if(error) console.error(k, error.message);
   }
 }
 
 function subscribeRealtime(){
-  realtimeChannels.forEach(ch=>supabaseClient.removeChannel(ch));
+  realtimeChannels.forEach(ch=>supabase.removeChannel(ch));
   realtimeChannels = KEYS.map(k=>
-    supabaseClient.channel('sync:'+k)
+    supabase.channel('sync:'+k)
       .on('postgres_changes', {event:'*', schema:'public', table:k}, async ()=>{
-        const {data,error} = await supabaseClient.from(k).select('*').order('created_at',{ascending:false});
+        const {data,error} = await supabase.from(k).select('*').order('created_at',{ascending:false});
         if(!error && data){ DB[k] = data.map(r=>fromDb(k,r)); render(); }
       })
       .subscribe()
@@ -311,7 +323,7 @@ async function doLogin(){
   if(!email || !password){ errBox.textContent='Inserisci email e password.'; errBox.classList.add('show'); return; }
   const btn = document.getElementById('login-btn');
   btn.disabled = true; btn.textContent = 'Accesso in corso…';
-  const {data,error} = await supabaseClient.auth.signInWithPassword({email,password});
+  const {data,error} = await supabase.auth.signInWithPassword({email,password});
   btn.disabled = false; btn.textContent = 'Accedi';
   if(error){
     errBox.textContent = 'Credenziali non valide. Contatta il titolare per un accesso.';
@@ -321,8 +333,8 @@ async function doLogin(){
   await enterApp(data.session);
 }
 async function doLogout(){
-  await supabaseClient.auth.signOut();
-  realtimeChannels.forEach(ch=>supabaseClient.removeChannel(ch));
+  await supabase.auth.signOut();
+  realtimeChannels.forEach(ch=>supabase.removeChannel(ch));
   realtimeChannels = [];
   document.getElementById('app').style.display='none';
   document.getElementById('login-screen').style.display='flex';
@@ -333,12 +345,17 @@ async function enterApp(session){
   document.getElementById('user-email').textContent = session.user.email;
   document.getElementById('login-screen').style.display='none';
   document.getElementById('loading').style.display='flex';
-  await loadAll();
-  subscribeRealtime();
-  renderNav();
-  render();
-  document.getElementById('loading').style.display='none';
-  document.getElementById('app').style.display='flex';
+  document.getElementById('loading').innerHTML = 'Caricamento gestionale…';
+  try{
+    await loadAll();
+    subscribeRealtime();
+    renderNav();
+    render();
+    document.getElementById('loading').style.display='none';
+    document.getElementById('app').style.display='flex';
+  }catch(e){
+    showInitError('Errore nel caricamento dei dati', esc(e.message || 'Riprova tra qualche istante.') + '<br>Se il problema persiste, verifica che lo schema.sql sia stato eseguito su Supabase.');
+  }
 }
 
 /* ============ NAV ============ */
@@ -400,7 +417,7 @@ function renderDashboard(){
       <div class="panel-body pad"><div class="chart">${monthly.map((v,i)=>`<div class="bar-wrap"><div class="bar" style="height:${Math.max((v/max)*100,2)}%" title="${eur(v)}"></div><div class="lbl">${mesi[i]}</div></div>`).join('')}</div></div>
     </div>
     <div class="panel"><div class="panel-head"><h3>Prossimi 7 giorni</h3></div>
-      <div class="panel-body">${prossimi.length? `<table><tbody>${prossimi.map(i=>`<tr><td style="width:110px">${fmtDate(i.data)}</td><td>${esc(clienteName(i.clienteId))}</td><td class="text-dim">${esc(i.tipo)}</td><td>${statoBadge(i.stato)}</td></tr>`).join('')}</tbody></table>` : `<div class="empty">Nessun intervento in programma nei primi 7 giorni</div>`}</div>
+      <div class="panel-body">${prossimi.length? `<table><tbody>${prossimi.map(i=>`<tr><td style="width:110px">${fmtDate(i.data)}</td><td>${esc(clienteName(i.clienteId))}</td><td class="text-dim">${esc(i.tipo)}</td><td>${statoBadge(i.stato)}</td></tr>`).join('')}</tbody></table>` : `<div class="empty">Nessun intervento in programma nei prossimi 7 giorni</div>`}</div>
     </div>`;
 }
 function statoBadge(stato){
@@ -457,11 +474,11 @@ async function saveCliente(id){
     email:document.getElementById('f-email').value.trim(), note:document.getElementById('f-note').value.trim() };
   const payload = toDb('clienti', obj);
   if(id){
-    const {data,error} = await supabaseClient.from('clienti').update(payload).eq('id',id).select().single();
+    const {data,error} = await supabase.from('clienti').update(payload).eq('id',id).select().single();
     if(error){ toast('Errore salvataggio','danger'); return; }
     Object.assign(DB.clienti.find(x=>x.id===id), fromDb('clienti',data));
   } else {
-    const {data,error} = await supabaseClient.from('clienti').insert(payload).select().single();
+    const {data,error} = await supabase.from('clienti').insert(payload).select().single();
     if(error){ toast('Errore salvataggio','danger'); return; }
     DB.clienti.unshift(fromDb('clienti',data));
   }
@@ -469,7 +486,7 @@ async function saveCliente(id){
 }
 async function deleteCliente(id){
   if(!confirmDelete('Eliminare questo cliente?')) return;
-  const {error} = await supabaseClient.from('clienti').delete().eq('id',id);
+  const {error} = await supabase.from('clienti').delete().eq('id',id);
   if(error){ toast('Errore eliminazione','danger'); return; }
   DB.clienti = DB.clienti.filter(x=>x.id!==id);
   render(); toast('Cliente eliminato');
@@ -497,185 +514,114 @@ function openInterventoForm(id){
   showModal(`
     <h2>${i?'Modifica intervento':'Nuovo intervento'}</h2>
     <div class="modal-sub">Manutenzione, riparazione o installazione</div>
-    <div class="form-grid">
-      <div class="form-row">
-        <label>Cliente *</label>
-        <select class="select" id="f-cliente">${clienteOptions(i?.clienteId)}</select>
-      </div>
-      <div class="form-row">
-        <label>Data *</label>
-        <input class="input" type="date" id="f-data" value="${i?.data||todayISO()}">
-      </div>
-    </div>
-    <div class="form-grid">
-      <div class="form-row">
-        <label>Tipo</label>
-        <select class="select" id="f-tipo">
-          ${['Manutenzione','Riparazione','Installazione','Ispezione'].map(t=>`<option ${i?.tipo===t?'selected':''}>${t}</option>`).join('')}
-        </select>
-      </div>
-      <div class="form-row">
-        <label>Stato</label>
-        <select class="select" id="f-stato">
-          ${[['da_programmare','Da programmare'],['programmato','Programmato'],['in_corso','In corso'],['completato','Completato']].map(([v,l])=>`<option value="${v}" ${i?.stato===v?'selected':''}>${l}</option>`).join('')}
-        </select>
-      </div>
-    </div>
-    <div class="form-grid">
-      <div class="form-row">
-        <label>Costo d'intervento (€)</label>
-        <input class="input" type="number" step="0.01" id="f-costo" value="${i?.costo||''}">
-      </div>
-    </div>
-    <div class="form-row">
-      <label>Descrizione / macchinari</label>
-      <textarea class="input" id="f-descrizione" rows="2">${esc(i?.descrizione)||''}</textarea>
-    </div>
-    <div class="form-row">
-      <label>Note interne</label>
-      <textarea class="input" id="f-note" rows="2">${esc(i?.note)||''}</textarea>
-    </div>
-    <div class="modal-actions">
-      <button class="btn secondary" onclick="closeModal()">Annulla</button>
-      <button class="btn" onclick="saveIntervento('${id||''}')">${icon('check')} Salva</button>
-    </div>
+    <div class="form-grid"><div class="form-row"><label>Cliente *</label><select class="select" id="f-cliente">${clienteOptions(i?.clienteId)}</select></div>
+      <div class="form-row"><label>Data *</label><input class="input" type="date" id="f-data" value="${i?.data||todayISO()}"></div></div>
+    <div class="form-grid"><div class="form-row"><label>Tipo</label><select class="select" id="f-tipo">${['Manutenzione','Riparazione','Installazione','Ispezione'].map(t=>`<option ${i?.tipo===t?'selected':''}>${t}</option>`).join('')}</select></div>
+      <div class="form-row"><label>Stato</label><select class="select" id="f-stato">${[['da_programmare','Da programmare'],['programmato','Programmato'],['in_corso','In corso'],['completato','Completato']].map(([v,l])=>`<option value="${v}" ${i?.stato===v?'selected':''}>${l}</option>`).join('')}</select></div></div>
+    <div class="form-row"><label>Descrizione / macchinari</label><textarea class="input" id="f-descrizione" rows="2">${esc(i?.descrizione)||''}</textarea></div>
+    <div class="form-row"><label>Costo (€)</label><input class="input" type="number" step="0.01" id="f-costo" value="${i?.costo||''}"></div>
+    <div class="form-row"><label>Note</label><textarea class="input" id="f-note" rows="2">${esc(i?.note)||''}</textarea></div>
+    <div class="modal-actions"><button class="btn secondary" onclick="closeModal()">Annulla</button><button class="btn" onclick="saveIntervento('${id||''}')">${icon('check')} Salva</button></div>
   `);
 }
-
 async function saveIntervento(id){
   const clienteId = document.getElementById('f-cliente').value;
-  const dataVal = document.getElementById('f-data').value;
-  if(!clienteId || !dataVal){ toast('Cliente e data sono obbligatori','danger'); return; }
-  const obj = {
-    clienteId,
-    data: dataVal,
-    tipo: document.getElementById('f-tipo').value,
-    stato: document.getElementById('f-stato').value,
-    costo: Number(document.getElementById('f-costo').value)||0,
-    descrizione: document.getElementById('f-descrizione').value.trim(),
-    note: document.getElementById('f-note').value.trim()
-  };
+  if(!clienteId){ toast('Seleziona o crea prima un cliente','danger'); return; }
+  const obj = { clienteId, data:document.getElementById('f-data').value, tipo:document.getElementById('f-tipo').value,
+    stato:document.getElementById('f-stato').value, descrizione:document.getElementById('f-descrizione').value.trim(),
+    costo:Number(document.getElementById('f-costo').value)||0, note:document.getElementById('f-note').value.trim() };
   const payload = toDb('interventi', obj);
   if(id){
-    const {data,error} = await supabaseClient.from('interventi').update(payload).eq('id',id).select().single();
+    const {data,error} = await supabase.from('interventi').update(payload).eq('id',id).select().single();
     if(error){ toast('Errore salvataggio','danger'); return; }
     Object.assign(DB.interventi.find(x=>x.id===id), fromDb('interventi',data));
   } else {
-    const {data,error} = await supabaseClient.from('interventi').insert(payload).select().single();
+    const {data,error} = await supabase.from('interventi').insert(payload).select().single();
     if(error){ toast('Errore salvataggio','danger'); return; }
     DB.interventi.unshift(fromDb('interventi',data));
   }
   closeModal(); render(); toast('Intervento salvato');
 }
-
 async function deleteIntervento(id){
   if(!confirmDelete('Eliminare questo intervento?')) return;
-  const {error} = await supabaseClient.from('interventi').delete().eq('id',id);
+  const {error} = await supabase.from('interventi').delete().eq('id',id);
   if(error){ toast('Errore eliminazione','danger'); return; }
   DB.interventi = DB.interventi.filter(x=>x.id!==id);
   render(); toast('Intervento eliminato');
 }
 
+/* ============ VOCI EDITOR ============ */
+let editingVoci = [];
+function vociEditorHtml(){
+  return `<table class="voci-table"><thead><tr><th style="width:auto">Descrizione</th><th style="width:60px">Qtà</th><th style="width:90px">Prezzo €</th><th style="width:90px" class="text-right">Totale</th><th style="width:28px"></th></tr></thead>
+    <tbody id="voci-body">${editingVoci.map((v,idx)=>vociRow(v,idx)).join('')}</tbody></table>
+    <button class="btn ghost small" onclick="addVoceRow()">${icon('plus')} Riga</button>
+    <div class="voci-total"><span class="text-dim" style="font-weight:400;font-size:12.5px;">Totale</span><span id="voci-total-val">${eur(vociTotale(editingVoci))}</span></div>`;
+}
+function vociRow(v,idx){
+  return `<tr><td><input class="input" value="${esc(v.desc)}" oninput="updateVoce(${idx},'desc',this.value)"></td>
+    <td><input class="input" type="number" step="1" value="${v.qta}" oninput="updateVoce(${idx},'qta',this.value)"></td>
+    <td><input class="input" type="number" step="0.01" value="${v.prezzo}" oninput="updateVoce(${idx},'prezzo',this.value)"></td>
+    <td class="text-right mono" id="voce-tot-${idx}">${eur((v.qta||0)*(v.prezzo||0))}</td>
+    <td><button class="icon-btn" onclick="removeVoceRow(${idx})">${icon('x')}</button></td></tr>`;
+}
+function addVoceRow(){ editingVoci.push({desc:'',qta:1,prezzo:0}); refreshVoci(); }
+function removeVoceRow(idx){ editingVoci.splice(idx,1); refreshVoci(); }
+function updateVoce(idx,field,val){
+  editingVoci[idx][field] = (field==='desc') ? val : Number(val)||0;
+  document.getElementById('voce-tot-'+idx).textContent = eur((editingVoci[idx].qta||0)*(editingVoci[idx].prezzo||0));
+  document.getElementById('voci-total-val').textContent = eur(vociTotale(editingVoci));
+}
+function refreshVoci(){
+  document.getElementById('voci-body').innerHTML = editingVoci.map((v,idx)=>vociRow(v,idx)).join('');
+  document.getElementById('voci-total-val').textContent = eur(vociTotale(editingVoci));
+}
+
 /* ============ PREVENTIVI ============ */
-let preventiviFilter = 'tutti';
 function renderPreventivi(){
-  let list = [...DB.preventivi].sort((a,b)=>(b.data||'').localeCompare(a.data||''));
-  if(preventiviFilter!=='tutti') list = list.filter(p=>p.stato===preventiviFilter);
+  const list = [...DB.preventivi].sort((a,b)=>(b.data||'').localeCompare(a.data||''));
   return `
-    <div class="page-header"><div><div class="page-title">Preventivi</div><div class="page-sub">Offerte e quotazioni</div></div>
+    <div class="page-header"><div><div class="page-title">Preventivi</div><div class="page-sub">${list.length} preventivi</div></div>
       <button class="btn" onclick="openPreventivoForm()">${icon('plus')} Nuovo preventivo</button></div>
-    <div class="panel"><div class="filters">
-      ${['tutti','bozza','inviato','accettato','rifiutato'].map(s=>`<button class="btn ghost" style="${preventiviFilter===s?'border-color:var(--accent);color:#fff':''}" onclick="preventiviFilter='${s}';render()">${s==='tutti'?'Tutti':statoLabel(s)}</button>`).join('')}
-    </div><div class="panel-body">
-      ${list.length? `<table><thead><tr><th>Numero</th><th>Data</th><th>Cliente</th><th>Stato</th><th class="text-right">Totale</th><th></th></tr></thead>
-        <tbody>${list.map(p=>`<tr><td class="mono font-weight-600">${esc(p.numero)}</td><td>${fmtDate(p.data)}</td><td><strong>${esc(clienteName(p.clienteId))}</strong></td><td>${statoBadge(p.stato)}</td><td class="text-right mono">${eur(vociTotale(p.voci))}</td>
-          <td><div class="row-actions">
-            ${p.stato==='accettato'? `<button class="icon-btn" title="Converti in Fattura" onclick="convertiInFattura('${p.id}')">${icon('convert')}</button>` : ''}
-            <button class="icon-btn" onclick="openPreventivoForm('${p.id}')">${icon('edit')}</button>
-            <button class="icon-btn" onclick="deletePreventivo('${p.id}')">${icon('trash')}</button>
-          </div></td></tr>`).join('')}</tbody></table>`
-        : emptyState('preventivo','Crea la tua prima offerta commerciale')}
+    <div class="panel"><div class="panel-body">
+      ${list.length? `<table><thead><tr><th>Numero</th><th>Cliente</th><th>Data</th><th class="text-right">Totale</th><th>Stato</th><th></th></tr></thead>
+        <tbody>${list.map(p=>`<tr><td class="mono">${esc(p.numero)}</td><td><strong>${esc(clienteName(p.clienteId))}</strong></td><td>${fmtDate(p.data)}</td><td class="text-right mono">${eur(vociTotale(p.voci))}</td><td>${statoBadge(p.stato)}</td>
+          <td><div class="row-actions">${p.stato==='accettato'?`<button class="icon-btn" title="Converti in fattura" onclick="convertPreventivo('${p.id}')">${icon('convert')}</button>`:''}
+          <button class="icon-btn" onclick="openPreventivoForm('${p.id}')">${icon('edit')}</button><button class="icon-btn" onclick="deletePreventivo('${p.id}')">${icon('trash')}</button></div></td></tr>`).join('')}</tbody></table>`
+        : emptyState('preventivo','Crea il primo preventivo per un cliente')}
     </div></div>`;
 }
-
-let vociFormList = [];
-function renderVociTable(voci){
-  vociFormList = voci ? JSON.parse(JSON.stringify(voci)) : [{desc:'',qta:1,prezzo:0}];
-  updateVociRender();
-}
-function updateVociRender(){
-  const container = document.getElementById('voci-container');
-  if(!container) return;
-  container.innerHTML = `
-    <table class="voci-table">
-      <thead><tr><th>Descrizione</th><th style="width:70px">Q.tà</th><th style="width:110px">Prezzo (€)</th><th style="width:40px"></th></tr></thead>
-      <tbody>
-        ${vociFormList.map((v,idx)=>`
-          <tr>
-            <td><input class="input small" value="${esc(v.desc)}" onchange="aggiornaVoce(${idx},'desc',this.value)" placeholder="Es. Sostituzione cuscinetti"></td>
-            <td><input class="input small text-right" type="number" min="1" value="${v.qta}" onchange="aggiornaVoce(${idx},'qta',this.value)"></td>
-            <td><input class="input small text-right" type="number" step="0.01" value="${v.prezzo}" onchange="aggiornaVoce(${idx},'prezzo',this.value)"></td>
-            <td><button class="icon-btn" type="button" onclick="rimuoviVoce(${idx})">${icon('x')}</button></td>
-          </tr>`).join('')}
-      </tbody>
-    </table>
-    <button class="btn ghost small" type="button" onclick="aggiungiVoce()">${icon('plus')} Aggiungi riga</button>
-    <div class="voci-total">Totale: <span id="voci-totale-label">${eur(vociTotale(vociFormList))}</span></div>
-  `;
-}
-function aggiornaVoce(idx,field,val){
-  if(field==='qta') vociFormList[idx].qta = Math.max(1,Number(val)||1);
-  else if(field==='prezzo') vociFormList[idx].prezzo = Math.max(0,Number(val)||0);
-  else vociFormList[idx].desc = val;
-  document.getElementById('voci-totale-label').textContent = eur(vociTotale(vociFormList));
-}
-function aggiungiVoce(){ vociFormList.push({desc:'',qta:1,prezzo:0}); updateVociRender(); }
-function rimuoviVoce(idx){ if(vociFormList.length>1) { vociFormList.splice(idx,1); updateVociRender(); } }
-
 function openPreventivoForm(id){
   const p = id ? DB.preventivi.find(x=>x.id===id) : null;
-  const preNumero = p?.numero || nextNumero(DB.preventivi, 'PRE-', new Date().getFullYear());
+  editingVoci = p ? JSON.parse(JSON.stringify(p.voci||[])) : [{desc:'',qta:1,prezzo:0}];
   showModal(`
     <h2>${p?'Modifica preventivo':'Nuovo preventivo'}</h2>
-    <div class="modal-sub">Dettaglio e raggruppamento voci di spesa</div>
-    <div class="form-grid">
-      <div class="form-row"><label>Numero</label><input class="input mono" id="f-numero" value="${preNumero}" readonly></div>
-      <div class="form-row"><label>Data *</label><input class="input" type="date" id="f-data" value="${p?.data||todayISO()}"></div>
-    </div>
-    <div class="form-grid">
-      <div class="form-row"><label>Cliente *</label><select class="select" id="f-cliente">${clienteOptions(p?.clienteId)}</select></div>
-      <div class="form-row"><label>Scadenza</label><input class="input" type="date" id="f-scadenza" value="${p?.scadenza||''}"></div>
-    </div>
-    <div class="form-row"><label>Stato</label>
-      <select class="select" id="f-stato">
-        ${[['bozza','Bozza'],['inviato','Inviato'],['accettato','Accettato'],['rifiutato','Rifiutato']].map(([v,l])=>`<option value="${v}" ${p?.stato===v?'selected':''}>${l}</option>`).join('')}
-      </select>
-    </div>
-    <div class="form-row"><label>Articoli / Servizi</label><div id="voci-container"></div></div>
+    <div class="modal-sub">${p?esc(p.numero):'Numero assegnato al salvataggio'}</div>
+    <div class="form-grid"><div class="form-row"><label>Cliente *</label><select class="select" id="f-cliente">${clienteOptions(p?.clienteId)}</select></div>
+      <div class="form-row"><label>Data</label><input class="input" type="date" id="f-data" value="${p?.data||todayISO()}"></div></div>
+    <div class="form-row"><label>Voci</label>${vociEditorHtml()}</div>
+    <div class="form-grid"><div class="form-row"><label>Stato</label><select class="select" id="f-stato">${[['bozza','Bozza'],['inviato','Inviato'],['accettato','Accettato'],['rifiutato','Rifiutato']].map(([v,l])=>`<option value="${v}" ${p?.stato===v?'selected':''}>${l}</option>`).join('')}</select></div>
+      <div class="form-row"><label>Validità (data)</label><input class="input" type="date" id="f-scadenza" value="${p?.scadenza||''}"></div></div>
     <div class="form-row"><label>Note</label><textarea class="input" id="f-note" rows="2">${esc(p?.note)||''}</textarea></div>
-    <div class="modal-actions"><button class="btn secondary" onclick="closeModal()">Annulla</button>
-      <button class="btn" onclick="savePreventivo('${id||''}')">${icon('check')} Salva</button></div>
+    <div class="modal-actions"><button class="btn secondary" onclick="closeModal()">Annulla</button><button class="btn" onclick="savePreventivo('${id||''}')">${icon('check')} Salva</button></div>
   `);
-  renderVociTable(p?.voci);
 }
 async function savePreventivo(id){
   const clienteId = document.getElementById('f-cliente').value;
-  const dataVal = document.getElementById('f-data').value;
-  if(!clienteId || !dataVal){ toast('Cliente e data sono obbligatori','danger'); return; }
-  const obj = {
-    numero: document.getElementById('f-numero').value,
-    clienteId, data: dataVal, voci: vociFormList,
-    stato: document.getElementById('f-stato').value,
-    scadenza: document.getElementById('f-scadenza').value || null,
-    note: document.getElementById('f-note').value.trim()
-  };
-  const payload = toDb('preventivi', obj);
+  if(!clienteId){ toast('Seleziona o crea prima un cliente','danger'); return; }
+  const voci = editingVoci.filter(v=>v.desc.trim()!=='' || v.prezzo>0);
+  const obj = { clienteId, data:document.getElementById('f-data').value, voci, stato:document.getElementById('f-stato').value,
+    scadenza:document.getElementById('f-scadenza').value || null, note:document.getElementById('f-note').value.trim() };
   if(id){
-    const {data,error} = await supabaseClient.from('preventivi').update(payload).eq('id',id).select().single();
+    const payload = toDb('preventivi', obj);
+    const {data,error} = await supabase.from('preventivi').update(payload).eq('id',id).select().single();
     if(error){ toast('Errore salvataggio','danger'); return; }
     Object.assign(DB.preventivi.find(x=>x.id===id), fromDb('preventivi',data));
   } else {
-    const {data,error} = await supabaseClient.from('preventivi').insert(payload).select().single();
+    const year = new Date(obj.data||todayISO()).getFullYear();
+    obj.numero = nextNumero(DB.preventivi,'P',''+year);
+    const payload = toDb('preventivi', obj);
+    const {data,error} = await supabase.from('preventivi').insert(payload).select().single();
     if(error){ toast('Errore salvataggio','danger'); return; }
     DB.preventivi.unshift(fromDb('preventivi',data));
   }
@@ -683,101 +629,88 @@ async function savePreventivo(id){
 }
 async function deletePreventivo(id){
   if(!confirmDelete('Eliminare questo preventivo?')) return;
-  const {error} = await supabaseClient.from('preventivi').delete().eq('id',id);
+  const {error} = await supabase.from('preventivi').delete().eq('id',id);
   if(error){ toast('Errore eliminazione','danger'); return; }
   DB.preventivi = DB.preventivi.filter(x=>x.id!==id);
   render(); toast('Preventivo eliminato');
 }
-async function convertiInFattura(prevId){
-  const prev = DB.preventivi.find(x=>x.id===prevId);
-  if(!prev) return;
-  const fatNumero = nextNumero(DB.fatture, 'FAT-', new Date().getFullYear());
-  const fatObj = {
-    numero: fatNumero, clienteId: prev.clienteId, data: todayISO(),
-    voci: prev.voci, stato: 'da_pagare', scadenza: new Date(Date.now()+30*86400000).toISOString().slice(0,10),
-    dataPagamento: null, note: `Generata da preventivo ${prev.numero}.`
-  };
-  const payload = toDb('fatture', fatObj);
-  const {data,error} = await supabaseClient.from('fatture').insert(payload).select().single();
-  if(error){ toast('Errore conversione','danger'); return; }
+async function convertPreventivo(id){
+  const p = DB.preventivi.find(x=>x.id===id);
+  if(!p) return;
+  const year = new Date().getFullYear();
+  const obj = { numero: nextNumero(DB.fatture,'',''+year), clienteId:p.clienteId, data:todayISO(),
+    voci:JSON.parse(JSON.stringify(p.voci)), stato:'da_pagare', scadenza:null, dataPagamento:null, note:'Da preventivo '+p.numero };
+  const payload = toDb('fatture', obj);
+  const {data,error} = await supabase.from('fatture').insert(payload).select().single();
+  if(error){ toast('Errore creazione fattura','danger'); return; }
   DB.fatture.unshift(fromDb('fatture',data));
-  currentTab = 'fatture';
-  renderNav(); render(); toast('Preventivo convertito in Fattura!');
+  toast('Fattura '+obj.numero+' creata dal preventivo');
+  switchTab('fatture');
 }
 
 /* ============ FATTURE ============ */
-let fattureFilter = 'tutti';
 function renderFatture(){
-  let list = [...DB.fatture].sort((a,b)=>(b.data||'').localeCompare(a.data||''));
-  if(fattureFilter!=='tutti') list = list.filter(f=>f.stato===fattureFilter);
+  const list = [...DB.fatture].sort((a,b)=>(b.data||'').localeCompare(a.data||''));
   return `
-    <div class="page-header"><div><div class="page-title">Fatture</div><div class="page-sub">Ciclo attivo e pagamenti</div></div>
+    <div class="page-header"><div><div class="page-title">Fatture</div><div class="page-sub">${list.length} fatture emesse</div></div>
       <button class="btn" onclick="openFatturaForm()">${icon('plus')} Nuova fattura</button></div>
-    <div class="panel"><div class="filters">
-      ${['tutti','da_pagare','pagata'].map(s=>`<button class="btn ghost" style="${fattureFilter===s?'border-color:var(--accent);color:#fff':''}" onclick="fattureFilter='${s}';render()">${s==='tutti'?'Tutti':statoLabel(s)}</button>`).join('')}
-    </div><div class="panel-body">
-      ${list.length? `<table><thead><tr><th>Numero</th><th>Data</th><th>Cliente</th><th>Stato</th><th class="text-right">Totale</th><th></th></tr></thead>
-        <tbody>${list.map(f=>`<tr><td class="mono font-weight-600">${esc(f.numero)}</td><td>${fmtDate(f.data)}</td><td><strong>${esc(clienteName(f.clienteId))}</strong></td><td>${statoBadge(f.stato)}</td><td class="text-right mono">${eur(vociTotale(f.voci))}</td>
-          <td><div class="row-actions"><button class="icon-btn" onclick="openFatturaForm('${f.id}')">${icon('edit')}</button><button class="icon-btn" onclick="deleteFattura('${f.id}')">${icon('trash')}</button></div></td></tr>`).join('')}</tbody></table>`
-        : emptyState('fattura','Emetti la tua prima fattura fiscale')}
+    <div class="panel"><div class="panel-body">
+      ${list.length? `<table><thead><tr><th>Numero</th><th>Cliente</th><th>Data</th><th class="text-right">Totale</th><th>Pagamento</th><th>Stato</th><th></th></tr></thead>
+        <tbody>${list.map(f=>`<tr><td class="mono">${esc(f.numero)}</td><td><strong>${esc(clienteName(f.clienteId))}</strong></td><td>${fmtDate(f.data)}</td><td class="text-right mono">${eur(vociTotale(f.voci))}</td><td class="text-dim">${esc(f.modalitaPagamento)||'—'}</td><td>${statoBadge(f.stato)}</td>
+          <td><div class="row-actions">${f.stato==='da_pagare'?`<button class="icon-btn" title="Segna come pagata" onclick="markPagata('${f.id}')">${icon('check')}</button>`:''}
+          <button class="icon-btn" onclick="openFatturaForm('${f.id}')">${icon('edit')}</button><button class="icon-btn" onclick="deleteFattura('${f.id}')">${icon('trash')}</button></div></td></tr>`).join('')}</tbody></table>`
+        : emptyState('fattura','Emetti la prima fattura, anche direttamente da un preventivo accettato')}
     </div></div>`;
 }
 function openFatturaForm(id){
   const f = id ? DB.fatture.find(x=>x.id===id) : null;
-  const fatNumero = f?.numero || nextNumero(DB.fatture, 'FAT-', new Date().getFullYear());
+  editingVoci = f ? JSON.parse(JSON.stringify(f.voci||[])) : [{desc:'',qta:1,prezzo:0}];
   showModal(`
     <h2>${f?'Modifica fattura':'Nuova fattura'}</h2>
-    <div class="modal-sub">Dettaglio e incassi</div>
-    <div class="form-grid">
-      <div class="form-row"><label>Numero</label><input class="input mono" id="f-numero" value="${fatNumero}" readonly></div>
-      <div class="form-row"><label>Data *</label><input class="input" type="date" id="f-data" value="${f?.data||todayISO()}"></div>
-    </div>
-    <div class="form-grid">
-      <div class="form-row"><label>Cliente *</label><select class="select" id="f-cliente">${clienteOptions(f?.clienteId)}</select></div>
-      <div class="form-row"><label>Scadenza</label><input class="input" type="date" id="f-scadenza" value="${f?.scadenza||''}"></div>
-    </div>
-    <div class="form-grid">
-      <div class="form-row"><label>Stato</label>
-        <select class="select" id="f-stato">
-          ${[['da_pagare','Da incassare'],['pagata','Pagata']].map(([v,l])=>`<option value="${v}" ${f?.stato===v?'selected':''}>${l}</option>`).join('')}
-        </select>
-      </div>
-      <div class="form-row"><label>Data Pagamento</label><input class="input" type="date" id="f-data-pagamento" value="${f?.dataPagamento||''}"></div>
-    </div>
-    <div class="form-row"><label>Voci fattura</label><div id="voci-container"></div></div>
+    <div class="modal-sub">${f?esc(f.numero):'Numero assegnato al salvataggio'} · Regime forfettario, IVA non esposta</div>
+    <div class="form-grid"><div class="form-row"><label>Cliente *</label><select class="select" id="f-cliente">${clienteOptions(f?.clienteId)}</select></div>
+      <div class="form-row"><label>Data</label><input class="input" type="date" id="f-data" value="${f?.data||todayISO()}"></div></div>
+    <div class="form-row"><label>Voci</label>${vociEditorHtml()}</div>
+    <div class="form-grid"><div class="form-row"><label>Stato</label><select class="select" id="f-stato">${[['da_pagare','Da incassare'],['pagata','Pagata']].map(([v,l])=>`<option value="${v}" ${f?.stato===v?'selected':''}>${l}</option>`).join('')}</select></div>
+      <div class="form-row"><label>Modalità di pagamento</label><select class="select" id="f-modalita">${['','Contanti','Bonifico','POS/Carta','Altro'].map(v=>`<option value="${v}" ${f?.modalitaPagamento===v?'selected':''}>${v||'— da definire —'}</option>`).join('')}</select></div></div>
+    <div class="form-row"><label>Scadenza pagamento</label><input class="input" type="date" id="f-scadenza" value="${f?.scadenza||''}"></div>
     <div class="form-row"><label>Note</label><textarea class="input" id="f-note" rows="2">${esc(f?.note)||''}</textarea></div>
-    <div class="modal-actions"><button class="btn secondary" onclick="closeModal()">Annulla</button>
-      <button class="btn" onclick="saveFattura('${id||''}')">${icon('check')} Salva</button></div>
+    <div class="modal-actions"><button class="btn secondary" onclick="closeModal()">Annulla</button><button class="btn" onclick="saveFattura('${id||''}')">${icon('check')} Salva</button></div>
   `);
-  renderVociTable(f?.voci);
 }
 async function saveFattura(id){
   const clienteId = document.getElementById('f-cliente').value;
-  const dataVal = document.getElementById('f-data').value;
-  if(!clienteId || !dataVal){ toast('Cliente e data sono obbligatori','danger'); return; }
-  const obj = {
-    numero: document.getElementById('f-numero').value,
-    clienteId, data: dataVal, voci: vociFormList,
-    stato: document.getElementById('f-stato').value,
-    scadenza: document.getElementById('f-scadenza').value || null,
-    dataPagamento: document.getElementById('f-data-pagamento').value || null,
-    note: document.getElementById('f-note').value.trim()
-  };
-  const payload = toDb('fatture', obj);
+  if(!clienteId){ toast('Seleziona o crea prima un cliente','danger'); return; }
+  const voci = editingVoci.filter(v=>v.desc.trim()!=='' || v.prezzo>0);
+  const obj = { clienteId, data:document.getElementById('f-data').value, voci, stato:document.getElementById('f-stato').value,
+    modalitaPagamento: document.getElementById('f-modalita').value || null,
+    scadenza:document.getElementById('f-scadenza').value || null, note:document.getElementById('f-note').value.trim() };
   if(id){
-    const {data,error} = await supabaseClient.from('fatture').update(payload).eq('id',id).select().single();
+    const payload = toDb('fatture', obj);
+    const {data,error} = await supabase.from('fatture').update(payload).eq('id',id).select().single();
     if(error){ toast('Errore salvataggio','danger'); return; }
     Object.assign(DB.fatture.find(x=>x.id===id), fromDb('fatture',data));
   } else {
-    const {data,error} = await supabaseClient.from('fatture').insert(payload).select().single();
+    const year = new Date(obj.data||todayISO()).getFullYear();
+    obj.numero = nextNumero(DB.fatture,'',''+year);
+    obj.dataPagamento = null;
+    const payload = toDb('fatture', obj);
+    const {data,error} = await supabase.from('fatture').insert(payload).select().single();
     if(error){ toast('Errore salvataggio','danger'); return; }
     DB.fatture.unshift(fromDb('fatture',data));
   }
   closeModal(); render(); toast('Fattura salvata');
 }
+async function markPagata(id){
+  const payload = { stato:'pagata', data_pagamento: todayISO() };
+  const {data,error} = await supabase.from('fatture').update(payload).eq('id',id).select().single();
+  if(error){ toast('Errore aggiornamento','danger'); return; }
+  Object.assign(DB.fatture.find(x=>x.id===id), fromDb('fatture',data));
+  render(); toast('Fattura segnata come pagata');
+}
 async function deleteFattura(id){
   if(!confirmDelete('Eliminare questa fattura?')) return;
-  const {error} = await supabaseClient.from('fatture').delete().eq('id',id);
+  const {error} = await supabase.from('fatture').delete().eq('id',id);
   if(error){ toast('Errore eliminazione','danger'); return; }
   DB.fatture = DB.fatture.filter(x=>x.id!==id);
   render(); toast('Fattura eliminata');
@@ -786,55 +719,48 @@ async function deleteFattura(id){
 /* ============ SPESE ============ */
 function renderSpese(){
   const list = [...DB.spese].sort((a,b)=>(b.data||'').localeCompare(a.data||''));
+  const tot = list.reduce((s,x)=>s+Number(x.importo||0),0);
   return `
-    <div class="page-header"><div><div class="page-title">Spese</div><div class="page-sub">Registrazione uscite e costi aziendali</div></div>
+    <div class="page-header"><div><div class="page-title">Spese</div><div class="page-sub">${list.length} spese · totale ${eur(tot)}</div></div>
       <button class="btn" onclick="openSpesaForm()">${icon('plus')} Nuova spesa</button></div>
     <div class="panel"><div class="panel-body">
       ${list.length? `<table><thead><tr><th>Data</th><th>Categoria</th><th>Descrizione</th><th class="text-right">Importo</th><th></th></tr></thead>
-        <tbody>${list.map(s=>`<tr><td>${fmtDate(s.data)}</td><td><span class="badge neutral">${esc(s.categoria)}</span></td><td class="text-dim">${esc(s.descrizione)||'—'}</td><td class="text-right mono" style="color:var(--danger)">-${eur(s.importo)}</td>
+        <tbody>${list.map(s=>`<tr><td>${fmtDate(s.data)}</td><td><span class="badge neutral">${esc(s.categoria)}</span></td><td class="text-dim">${esc(s.descrizione)||'—'}</td><td class="text-right mono">${eur(s.importo)}</td>
           <td><div class="row-actions"><button class="icon-btn" onclick="openSpesaForm('${s.id}')">${icon('edit')}</button><button class="icon-btn" onclick="deleteSpesa('${s.id}')">${icon('trash')}</button></div></td></tr>`).join('')}</tbody></table>`
-        : emptyState('spesa','Inserisci la prima spesa aziendale')}
+        : emptyState('spesa','Registra carburante, materiali e altri costi')}
     </div></div>`;
 }
 function openSpesaForm(id){
   const s = id ? DB.spese.find(x=>x.id===id) : null;
+  const cats = ['Carburante','Materiali/Ricambi','Attrezzatura','Assicurazione','Manutenzione furgone','Altro'];
   showModal(`
     <h2>${s?'Modifica spesa':'Nuova spesa'}</h2>
-    <div class="modal-sub">Uscite e forniture</div>
-    <div class="form-grid">
-      <div class="form-row"><label>Data *</label><input class="input" type="date" id="f-data" value="${s?.data||todayISO()}"></div>
-      <div class="form-row"><label>Categoria *</label>
-        <select class="select" id="f-categoria">
-          ${['Materiale/Ricambi','Carburante','Utenze','Attrezzatura','Servizi','Altro'].map(cat=>`<option ${s?.categoria===cat?'selected':''}>${cat}</option>`).join('')}
-        </select>
-      </div>
-    </div>
-    <div class="form-row"><label>Importo spesa (€) *</label><input class="input" type="number" step="0.01" id="f-importo" value="${s?.importo||''}"></div>
-    <div class="form-row"><label>Descrizione / Fornitore</label><textarea class="input" id="f-descrizione" rows="2">${esc(s?.descrizione)||''}</textarea></div>
-    <div class="modal-actions"><button class="btn secondary" onclick="closeModal()">Annulla</button>
-      <button class="btn" onclick="saveSpesa('${id||''}')">${icon('check')} Salva</button></div>
+    <div class="form-grid"><div class="form-row"><label>Data</label><input class="input" type="date" id="f-data" value="${s?.data||todayISO()}"></div>
+      <div class="form-row"><label>Importo (€) *</label><input class="input" type="number" step="0.01" id="f-importo" value="${s?.importo||''}"></div></div>
+    <div class="form-row"><label>Categoria</label><select class="select" id="f-categoria">${cats.map(c=>`<option ${s?.categoria===c?'selected':''}>${c}</option>`).join('')}</select></div>
+    <div class="form-row"><label>Descrizione</label><input class="input" id="f-descrizione" value="${esc(s?.descrizione)||''}"></div>
+    <div class="modal-actions"><button class="btn secondary" onclick="closeModal()">Annulla</button><button class="btn" onclick="saveSpesa('${id||''}')">${icon('check')} Salva</button></div>
   `);
 }
 async function saveSpesa(id){
-  const dataVal = document.getElementById('f-data').value;
-  const importo = Number(document.getElementById('f-importo').value);
-  if(!dataVal || !importo){ toast('Data e importo sono obbligatori','danger'); return; }
-  const obj = { data: dataVal, categoria: document.getElementById('f-categoria').value, descrizione: document.getElementById('f-descrizione').value.trim(), importo };
+  const importo = Number(document.getElementById('f-importo').value)||0;
+  if(importo<=0){ toast('Inserisci un importo valido','danger'); return; }
+  const obj = { data:document.getElementById('f-data').value, importo, categoria:document.getElementById('f-categoria').value, descrizione:document.getElementById('f-descrizione').value.trim() };
   const payload = toDb('spese', obj);
   if(id){
-    const {data,error} = await supabaseClient.from('spese').update(payload).eq('id',id).select().single();
+    const {data,error} = await supabase.from('spese').update(payload).eq('id',id).select().single();
     if(error){ toast('Errore salvataggio','danger'); return; }
     Object.assign(DB.spese.find(x=>x.id===id), fromDb('spese',data));
   } else {
-    const {data,error} = await supabaseClient.from('spese').insert(payload).select().single();
+    const {data,error} = await supabase.from('spese').insert(payload).select().single();
     if(error){ toast('Errore salvataggio','danger'); return; }
     DB.spese.unshift(fromDb('spese',data));
   }
-  closeModal(); render(); toast('Spesa registrata');
+  closeModal(); render(); toast('Spesa salvata');
 }
 async function deleteSpesa(id){
   if(!confirmDelete('Eliminare questa spesa?')) return;
-  const {error} = await supabaseClient.from('spese').delete().eq('id',id);
+  const {error} = await supabase.from('spese').delete().eq('id',id);
   if(error){ toast('Errore eliminazione','danger'); return; }
   DB.spese = DB.spese.filter(x=>x.id!==id);
   render(); toast('Spesa eliminata');
@@ -842,103 +768,114 @@ async function deleteSpesa(id){
 
 /* ============ MAGAZZINO ============ */
 function renderMagazzino(){
-  const list = DB.magazzino;
+  const list = [...DB.magazzino].sort((a,b)=>a.nome.localeCompare(b.nome));
   return `
-    <div class="page-header"><div><div class="page-title">Magazzino</div><div class="page-sub">Scorte e materiali in dotazione</div></div>
-      <button class="btn" onclick="openArticoloForm()">${icon('plus')} Nuovo articolo</button></div>
+    <div class="page-header"><div><div class="page-title">Magazzino</div><div class="page-sub">Ricambi e materiali</div></div>
+      <button class="btn" onclick="openMagazzinoForm()">${icon('plus')} Nuovo articolo</button></div>
     <div class="panel"><div class="panel-body">
-      ${list.length? `<table><thead><tr><th>Articolo</th><th>Fornitore</th><th class="text-right">Q.tà disp.</th><th class="text-right">Soglia scorta</th><th class="text-right">Prezzo Unit.</th><th></th></tr></thead>
-        <tbody>${list.map(a=>{
-          const sottoscorta = Number(a.quantita) <= Number(a.scorta);
-          return `<tr>
-            <td><strong>${esc(a.nome)}</strong></td>
-            <td class="text-dim">${esc(a.fornitore)||'—'}</td>
-            <td class="text-right mono ${sottoscorta?'text-danger':''}" style="font-weight:700">${a.quantita} ${sottoscorta?'<span style="font-size:10px;color:var(--warn)">⚠️ Sotto scorta</span>':''}</td>
-            <td class="text-right text-dim mono">${a.scorta}</td>
-            <td class="text-right mono">${eur(a.prezzo)}</td>
-            <td><div class="row-actions"><button class="icon-btn" onclick="openArticoloForm('${a.id}')">${icon('edit')}</button><button class="icon-btn" onclick="deleteArticolo('${a.id}')">${icon('trash')}</button></div></td>
-          </tr>`}).join('')}</tbody></table>`
-        : emptyState('articolo','Inserisci materiali o parti di ricambio in magazzino')}
+      ${list.length? `<table><thead><tr><th>Articolo</th><th>Quantità</th><th>Prezzo unit.</th><th>Fornitore</th><th></th></tr></thead>
+        <tbody>${list.map(m=>{ const low = Number(m.quantita) <= Number(m.scorta||0);
+          return `<tr><td><strong>${esc(m.nome)}</strong></td><td>${low?`<span class="badge warn">${m.quantita} — scorta bassa</span>`:m.quantita}</td><td class="mono">${eur(m.prezzo)}</td><td class="text-dim">${esc(m.fornitore)||'—'}</td>
+          <td><div class="row-actions"><button class="icon-btn" onclick="openMagazzinoForm('${m.id}')">${icon('edit')}</button><button class="icon-btn" onclick="deleteMagazzino('${m.id}')">${icon('trash')}</button></div></td></tr>`; }).join('')}</tbody></table>`
+        : emptyState('articolo','Aggiungi ricambi e materiali che tieni in furgone')}
     </div></div>`;
 }
-function openArticoloForm(id){
-  const a = id ? DB.magazzino.find(x=>x.id===id) : null;
+function openMagazzinoForm(id){
+  const m = id ? DB.magazzino.find(x=>x.id===id) : null;
   showModal(`
-    <h2>${a?'Modifica articolo':'Nuovo articolo'}</h2>
-    <div class="modal-sub">Gestione scorte e unità</div>
-    <div class="form-row"><label>Nome articolo *</label><input class="input" id="f-nome" value="${esc(a?.nome)||''}"></div>
-    <div class="form-grid">
-      <div class="form-row"><label>Quantità disponibile *</label><input class="input" type="number" id="f-quantita" value="${a?.quantita??0}"></div>
-      <div class="form-row"><label>Scorta minima (alert) *</label><input class="input" type="number" id="f-scorta" value="${a?.scorta??5}"></div>
-    </div>
-    <div class="form-grid">
-      <div class="form-row"><label>Prezzo unitario (€)</label><input class="input" type="number" step="0.01" id="f-prezzo" value="${a?.prezzo||''}"></div>
-      <div class="form-row"><label>Fornitore</label><input class="input" id="f-fornitore" value="${esc(a?.fornitore)||''}"></div>
-    </div>
-    <div class="modal-actions"><button class="btn secondary" onclick="closeModal()">Annulla</button>
-      <button class="btn" onclick="saveArticolo('${id||''}')">${icon('check')} Salva</button></div>
+    <h2>${m?'Modifica articolo':'Nuovo articolo'}</h2>
+    <div class="form-row"><label>Nome articolo *</label><input class="input" id="f-nome" value="${esc(m?.nome)||''}"></div>
+    <div class="form-grid"><div class="form-row"><label>Quantità</label><input class="input" type="number" id="f-quantita" value="${m?.quantita??0}"></div>
+      <div class="form-row"><label>Scorta minima</label><input class="input" type="number" id="f-scorta" value="${m?.scorta??0}"></div></div>
+    <div class="form-grid"><div class="form-row"><label>Prezzo unitario (€)</label><input class="input" type="number" step="0.01" id="f-prezzo" value="${m?.prezzo||''}"></div>
+      <div class="form-row"><label>Fornitore</label><input class="input" id="f-fornitore" value="${esc(m?.fornitore)||''}"></div></div>
+    <div class="modal-actions"><button class="btn secondary" onclick="closeModal()">Annulla</button><button class="btn" onclick="saveMagazzino('${id||''}')">${icon('check')} Salva</button></div>
   `);
 }
-async function saveArticolo(id){
+async function saveMagazzino(id){
   const nome = document.getElementById('f-nome').value.trim();
-  const quantita = Number(document.getElementById('f-quantita').value);
-  const scorta = Number(document.getElementById('f-scorta').value);
   if(!nome){ toast('Il nome è obbligatorio','danger'); return; }
-  const obj = { nome, quantita, scorta, prezzo: Number(document.getElementById('f-prezzo').value)||0, fornitore: document.getElementById('f-fornitore').value.trim() };
+  const obj = { nome, quantita:Number(document.getElementById('f-quantita').value)||0, scorta:Number(document.getElementById('f-scorta').value)||0,
+    prezzo:Number(document.getElementById('f-prezzo').value)||0, fornitore:document.getElementById('f-fornitore').value.trim() };
   const payload = toDb('magazzino', obj);
   if(id){
-    const {data,error} = await supabaseClient.from('magazzino').update(payload).eq('id',id).select().single();
+    const {data,error} = await supabase.from('magazzino').update(payload).eq('id',id).select().single();
     if(error){ toast('Errore salvataggio','danger'); return; }
     Object.assign(DB.magazzino.find(x=>x.id===id), fromDb('magazzino',data));
   } else {
-    const {data,error} = await supabaseClient.from('magazzino').insert(payload).select().single();
+    const {data,error} = await supabase.from('magazzino').insert(payload).select().single();
     if(error){ toast('Errore salvataggio','danger'); return; }
     DB.magazzino.unshift(fromDb('magazzino',data));
   }
   closeModal(); render(); toast('Articolo salvato');
 }
-async function deleteArticolo(id){
+async function deleteMagazzino(id){
   if(!confirmDelete('Eliminare questo articolo?')) return;
-  const {error} = await supabaseClient.from('magazzino').delete().eq('id',id);
+  const {error} = await supabase.from('magazzino').delete().eq('id',id);
   if(error){ toast('Errore eliminazione','danger'); return; }
   DB.magazzino = DB.magazzino.filter(x=>x.id!==id);
   render(); toast('Articolo eliminato');
 }
 
-/* ============ UTILS INTERFACCIAMENTO MODALE ============ */
-function showModal(htmlContent){
-  document.getElementById('modal').innerHTML = htmlContent;
-  document.getElementById('overlay').classList.add('show');
-}
-function closeModal(){
-  document.getElementById('overlay').classList.remove('show');
-  document.getElementById('modal').innerHTML = '';
+/* ============ MODAL ============ */
+function showModal(html){ document.getElementById('modal').innerHTML = html; document.getElementById('overlay').classList.add('show'); }
+function closeModal(){ document.getElementById('overlay').classList.remove('show'); editingVoci=[]; }
+document.getElementById('overlay').addEventListener('click', e=>{ if(e.target.id==='overlay') closeModal(); });
+document.addEventListener('keydown', e=>{ if(e.key==='Escape') closeModal(); });
+document.getElementById('login-password')?.addEventListener('keydown', e=>{ if(e.key==='Enter') doLogin(); });
+
+/* ============ INIT ============ */
+function showInitError(title, detail){
+  document.getElementById('loading').style.display='flex';
+  document.getElementById('loading').innerHTML = `<div style="max-width:420px;text-align:center;padding:20px;">
+    <div style="font-weight:700;margin-bottom:10px;color:var(--text);">${esc(title)}</div>
+    <div style="font-size:12.5px;line-height:1.6;color:var(--text-dim);">${detail}</div>
+    <button class="btn secondary" style="margin-top:16px;" onclick="location.reload()">Riprova</button>
+  </div>`;
 }
 
-// Inizializzazione automatica al caricamento dello script
 (async function init(){
-  if(CONFIGURED && supabaseClient){
-    try {
-      const { data: { session } } = await supabaseClient.auth.getSession();
-      if(session){
-        await enterApp(session);
-      } else {
-        document.getElementById('loading').style.display='none';
-        document.getElementById('login-screen').style.display='flex';
-      }
-    } catch(e) {
-      console.error("Errore inizializzazione sessione:", e);
-      document.getElementById('loading').style.display='none';
+  if(!CONFIGURED){
+    showInitError('Configurazione mancante', 'Apri il file index.html e inserisci SUPABASE_URL e SUPABASE_ANON_KEY.<br>Vedi le istruzioni in SETUP.md.');
+    return;
+  }
+  if(INIT_ERROR || !supabase){
+    showInitError('Impossibile avviare l\'app', esc(INIT_ERROR || 'Errore sconosciuto durante l\'inizializzazione.') + '<br>Controlla la connessione internet e ricarica la pagina.');
+    return;
+  }
+
+  // Se dopo 12 secondi non è successo nulla (es. rete lenta/bloccata), mostra un errore invece di restare bloccati
+  const safetyTimer = setTimeout(()=>{
+    showInitError('Connessione al server troppo lenta', 'Il caricamento sta impiegando troppo tempo. Controlla la connessione internet e riprova.');
+  }, 12000);
+
+  document.addEventListener('keydown', e=>{ if(e.key==='Enter' && document.getElementById('login-screen').style.display!=='none') doLogin(); });
+
+  try{
+    const {data, error} = await supabase.auth.getSession();
+    clearTimeout(safetyTimer);
+    if(error) throw error;
+    document.getElementById('loading').style.display='none';
+    if(data.session){
+      await enterApp(data.session);
+    } else {
       document.getElementById('login-screen').style.display='flex';
     }
-  } else {
-    document.getElementById('loading').innerHTML = `
-      <div class="config-warning" style="max-width:400px; text-align:center;">
-        <strong>Configurazione mancante!</strong><br>
-        Compila l'URL e la Anon Key di Supabase nel file HTML per iniziare.
-      </div>`;
+    supabase.auth.onAuthStateChange((event, session)=>{
+      if(event==='SIGNED_OUT'){
+        document.getElementById('app').style.display='none';
+        document.getElementById('login-screen').style.display='flex';
+      }
+    });
+  }catch(e){
+    clearTimeout(safetyTimer);
+    showInitError('Errore di connessione', esc(e.message || 'Impossibile contattare il server.') + '<br>Verifica che SUPABASE_URL e SUPABASE_ANON_KEY siano corretti.');
   }
 })();
+
+if('serviceWorker' in navigator){
+  window.addEventListener('load', ()=>{ navigator.serviceWorker.register('sw.js').catch(()=>{}); });
+}
 </script>
 </body>
 </html>
